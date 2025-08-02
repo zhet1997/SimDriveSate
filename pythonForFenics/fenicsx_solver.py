@@ -67,8 +67,8 @@ def run_solver(
     F=None,
 ):
     comm = MPI.COMM_WORLD
-    domain = ((0.0, 0.0), (length, length))
-    n_cells = (nx, nx)
+    domain = ((0.0, 0.0), (length, length))  # 区域边界：从(0,0)到(length, length)的正方形
+    n_cells = (nx, nx)  # 网格单元数量：x和y方向各nx个单元
     
     # 创建网格
     mesh_dom = get_mesh(domain, comm, n_cells)
@@ -76,13 +76,18 @@ def run_solver(
     # 处理边界条件
     bc_funcs = []
     if len(bcs) > 0 and bcs[0]:
+        # 为每个边界线段生成对应的边界条件函数
         bc_funcs = [LineBoundary(line).get_boundary() for line in bcs]
     else:
+        # 默认边界条件：所有边界都生效
         bc_funs = [lambda x, on_boundary: on_boundary]
         
     # 处理热源
+    # 初始化热源对象（基于之前生成的F矩阵）
     source = SourceF(F, length)
+    # 定义有限元函数空间：Lagrange线性元（最常用的有限元类型）
     V = fem.functionspace(mesh_dom, ("Lagrange", 1))
+    # 将热源分布插值到有限元空间上
     f_expr = fem.Function(V)
     f_expr.interpolate(lambda x: [source.get_source_value(xi) for xi in x.T])
     
