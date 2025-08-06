@@ -1,228 +1,286 @@
 '''
 Author: wangqineng zhet3988009@gmail.com
-Date: 2025-07-08 16:15:09
+Date: 2025-08-03 10:00:00
 LastEditors: wangqineng zhet3988009@gmail.com
-LastEditTime: 2025-07-10 10:35:03
-FilePath: /EngTestTool/pythonForFenics/test_fenicsx_solver.py
-Description: 
-
-Copyright (c) 2025 by wangqineng, All Rights Reserved. 
+LastEditTime: 2025-08-03 15:00:00
+FilePath: /EngTestTool/pythonForFenics/temperature_field_solver.py
+Copyright (c) 2025 by wangqineng, All Rights Reserved.
 '''
 import sys
 import os
-
-# 手动添加模块所在目录到 Python 搜索路径
-# 目标目录：/data/zxr/inr/SimDriveSate/pythonForFenics/
-module_dir = "/data/zxr/inr/SimDriveSate/pythonForFenics"
-sys.path.append(module_dir)
-
-# 现在可以正常导入了
-from fenicsx_solver import run_solver
 import numpy as np
-from fenicsx_solver import run_solver
 import matplotlib.pyplot as plt
+from scipy.interpolate import griddata
+from typing import List, Tuple, Dict, Optional
 
-def test_run_solver_simple_heat_source():
-    # 2D problem, unit square, single heat source in the center
-    ndim = 2
-    length = 0.1
-    nx = 256  # mesh divisions
-    length_unit = length / nx
+# 手动添加模块所在目录到Python搜索路径
+module_dir = "/data/zxr/inr/SimDriveSate/pythonForFenics"
+if module_dir not in sys.path:
+    sys.path.append(module_dir)
 
-    # Place a single heat source
-    layout_list = [
-        ('capsule', 0.05, 0.05, 0.06, 0.02),  # 胶囊：中心(0.05,0.05)，总长度0.06，宽度0.02
-        ('rect', 0.08, 0.03, 0.03, 0.01),  # 矩形：中心(0.08,0.03)，宽0.03，高0.01
-        ('circle', 0.02, 0.08, 0.01)  # 圆形：中心(0.02,0.08)，半径0.01
-    ]
-    powers = [5000, 3000, 2000]
-
-    # Place a bc condition 
-    u0 = 298.0
-    bcs = [([0.03, 0], [0.05, 0]), ([0, 0.01], [0, 0.02])]
-
-    F = generate_source_F(layout_list, powers, length, nx)
-    plot_source_and_bc(F, bcs, length, nx)
-
-    # Run solver
-    U, V = run_solver(
-        ndim=ndim,
-        length=length,
-        length_unit=length_unit,
-        bcs=bcs,
-        layout_list=layout_list,
-        u0=u0,
-        powers=powers,
-        nx=nx,
-        coordinates=True,
-        F=F,
-    )
-    plot_u(U, V)
+from fenicsx_solver import run_solver
 
 
-def plot_u(uh, V):
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from scipy.interpolate import griddata
+class TemperatureFieldSolver:
+    """温度场求解器类"""
+    def __init__(self,
+                 layout_domain: Tuple[float, float],  # 布局域尺寸 (width, height)
+                 mesh_size: Tuple[int, int]):        # 网格尺寸 (N×M) = (y方向网格数, x方向网格数)
+        # 布局域参数
+        self.layout_width, self.layout_height = layout_domain  # (x方向长度, y方向长度)
+        self.mesh_N, self.mesh_M = mesh_size                  # (y方向网格数, x方向网格数)
 
-    # 假设 uh 和 V 已经从求解过程中得到
+        # 网格物理参数
+        self.grid_width = self.layout_width / self.mesh_M    # x方向网格单元尺寸
+        self.grid_height = self.layout_height / self.mesh_N  # y方向网格单元尺寸
 
-    # 1. 获取函数空间 V 中所有自由度的坐标
-    #    这会返回一个 (num_dofs, 3) 的数组，即使是2D问题，z坐标也存在
-    dof_coords = V.tabulate_dof_coordinates()
-    x_coords = dof_coords[:, 0]
-    y_coords = dof_coords[:, 1]
-    # 2. 获取 uh 的自由度值
-    #    uh.x.array 包含了与 dof_coords 一一对应的值
-    solution_values = uh.x.array
+        # 网格点数（矩阵维度）
+        self.total_nodes = (self.mesh_N + 1, self.mesh_M + 1)  # (y方向点数, x方向点数)
 
-    # 3. 创建一个你想要的规则网格 (例如 100x100)
-    grid_x, grid_y = np.mgrid[
-                     np.min(x_coords):np.max(x_coords):100j,
-                     np.min(y_coords):np.max(y_coords):100j
-                     ]
-    # 4. 使用 griddata 进行插值
-    #    将 (x_coords, y_coords) 上的 solution_values 插值到 (grid_x, grid_y) 上
-    U = griddata(
-        (x_coords, y_coords),  # 原始散点坐标
-        solution_values,  # 原始散点值
-        (grid_x, grid_y),  # 目标网格坐标
-        method='cubic'  # 插值方法：'linear', 'nearest', 'cubic'
-    )
+        # 存储计算结果
+        self.source_matrix = None  # 热源矩阵F
+        self.temperature_field = None  # 温度场结果
+        self.function_space = None  # 有限元函数空间
+        self.boundary_conditions = []  # 边界条件列表
 
-    plt.figure(figsize=(8, 6))
-    if U.ndim == 1:
-        plt.plot(U)
-        plt.xlabel('Index')
-        plt.ylabel('Value')
-        plt.title('1D Solution Curve')
-    elif U.ndim == 2:
-        im = plt.imshow(U, cmap='viridis', aspect='auto')
-        cbar = plt.colorbar(im)
-        cbar.set_label('Value')
-        plt.xlabel('X Axis')
-        plt.ylabel('Y Axis')
-        plt.title('2D Solution Field')
-    else:
-        raise ValueError('U must be 1D or 2D array')
-    plt.tight_layout()
-    plt.savefig('debug_solution_new.png')
-    plt.show()
+        # 数值计算容差
+        self.tolerance = 1e-8
 
+    def set_boundary_conditions(self, bcs: List[Tuple[Tuple[float, float], Tuple[float, float]]]):
+        """设置边界条件
+        参数:
+            bcs: 边界条件列表，每个元素为线段的两个端点 [(x1,y1), (x2,y2)]
+        """
+        self.boundary_conditions = bcs
+        return self  # 支持链式调用
 
-def generate_source_F(layout_list, powers, length, nx):
-    """
-    生成热源分布矩阵F（支持矩形、圆形和胶囊型热源）。
-    layout_list: 每个元素为元组，格式根据形状不同：
-                 - 矩形: ('rect', center_x, center_y, width, height)
-                 - 圆形: ('circle', center_x, center_y, radius)
-                 - 胶囊型: ('capsule', center_x, center_y, length, width)
-                   （length：胶囊总长度，width：胶囊宽度（半圆直径））
-    powers:      [p1, p2, ...]  # 每个热源的功率，与layout_list一一对应
-    length:      板边长
-    nx:          网格划分数
-    返回: F (ndarray, shape=(nx+1, nx+1))  # 热源分布矩阵
-    """
-    # 初始化热源矩阵（全零，非热源区域为0）
-    F = np.zeros((nx + 1, nx + 1))
+    def generate_source_matrix(self, heat_sources: List[Dict]) -> np.ndarray:
+        """生成热源矩阵
+        参数:
+            heat_sources: 热源列表，每个热源为字典，格式：
+                - 矩形: {"shape": "rect", "center": (x,y), "width": w, "height": h, "power": p}
+                - 圆形: {"shape": "circle", "center": (x,y), "radius": r, "power": p}
+                - 胶囊型: {"shape": "capsule", "center": (x,y), "length": l, "width": w, "power": p}
+        返回:
+            热源矩阵F (shape: (ny, nx))
+        """
+        # 初始化热源矩阵（基于类初始化的节点数/网格数
+        F = np.zeros(self.total_nodes, dtype=np.float64)  # 形状: (ny+1, nx+1)
+        # 生成坐标网格（直接用类中布局域和网格参数）
+        x_coords = np.linspace(0, self.layout_width, self.mesh_M + 1)
+        y_coords = np.linspace(0, self.layout_height, self.mesh_N + 1)
+        X, Y = np.meshgrid(x_coords, y_coords, indexing='xy')
 
-    # 生成物理坐标网格（将板从0到length均匀划分）
-    x = np.linspace(0, length, nx + 1)
-    y = np.linspace(0, length, nx + 1)
-    X, Y = np.meshgrid(x, y, indexing='ij')  # X/Y为网格点的坐标矩阵
+        # 遍历热源，生成掩码并赋值
+        for source in heat_sources:
+            shape = source["shape"]
+            cx, cy = source["center"]
+            power = source["power"]
+            tol = self.tolerance  # 直接用类中定义的容差
 
-    # 遍历每个热源，根据形状生成区域掩码并赋值功率
-    for layout, power in zip(layout_list, powers):
-        shape_type = layout[0]  # 第一个元素指定形状类型
+            if shape == "rect":
+                w, h = source["width"], source["height"]
+                mask = (X >= cx - w / 2 + tol) & (X <= cx + w / 2 - tol) & \
+                        (Y >= cy - h / 2 + tol) & (Y <= cy + h / 2 - tol)
 
-        if shape_type == 'rect':
-            # 矩形热源：(center_x, center_y, width, height)
-            _, center_x, center_y, w, h = layout
-            mask = (
-                    (X >= center_x - w / 2) & (X <= center_x + w / 2) &
-                    (Y >= center_y - h / 2) & (Y <= center_y + h / 2)
-            )
+            elif shape == "circle":
+                r = source["radius"]
+                mask = (X - cx) ** 2 + (Y - cy) ** 2 <= r ** 2 + tol
 
-        elif shape_type == 'circle':
-            # 圆形热源：(center_x, center_y, radius)
-            _, center_x, center_y, radius = layout
-            mask = (X - center_x) ** 2 + (Y - center_y) ** 2 <= radius ** 2
+            elif shape == "capsule":
+                length, width = source["length"], source["width"]
+                radius = width / 2
+                rect_len = length - width
+                # 中间矩形
+                rect_mask = (X >= cx - rect_len / 2 + tol) & (X <= cx + rect_len / 2 - tol) & \
+                            (Y >= cy - radius + tol) & (Y <= cy + radius - tol)
+                # 两端半圆
+                left_mask = (X <= cx - rect_len / 2 + tol) & \
+                            ((X - (cx - rect_len / 2)) ** 2 + (Y - cy) ** 2 <= radius ** 2 + tol)
+                right_mask = (X >= cx + rect_len / 2 - tol) & \
+                            ((X - (cx + rect_len / 2)) ** 2 + (Y - cy) ** 2 <= radius ** 2 + tol)
+                mask = rect_mask | left_mask | right_mask
 
-        elif shape_type == 'capsule':
-            # 胶囊型热源：中间长方体 + 两端半圆
-            # 参数：(center_x, center_y, 总长度L, 宽度W)
-            _, center_x, center_y, cap_length, cap_width = layout
-            radius = cap_width / 2
-            rect_length = cap_length - 2 * radius  # 中间长方体长度
+            else:
+                raise ValueError(f"不支持的形状: {shape}")
 
-            # 1. 中间长方体掩码
-            rect_mask = (
-                    (X >= center_x - rect_length / 2) & (X <= center_x + rect_length / 2) &
-                    (Y >= center_y - radius) & (Y <= center_y + radius)
-            )
+            F[mask] = power  # 赋值功率
 
-            # 2. 左端半圆掩码（修复括号）
-            left_circle_mask = (
-                    (X <= center_x - rect_length / 2) &  # 条件1
-                    ((X - (center_x - rect_length / 2)) ** 2 + (Y - center_y) ** 2 <= radius ** 2)  # 条件2（增加外层括号）
-            )
+            self.source_matrix = F
+        return F
 
-            # 3. 右端半圆掩码（修复括号）
-            right_circle_mask = (
-                    (X >= center_x + rect_length / 2) &  # 条件1
-                    ((X - (center_x + rect_length / 2)) ** 2 + (Y - center_y) ** 2 <= radius ** 2)  # 条件2（增加外层括号）
-            )
+    def solve(self, u0: float = 298.0) -> Tuple[np.ndarray, object]:
+        """求解温度场
+        参数:
+            u0: 边界条件温度值（默认298K）
+        返回:
+            温度场结果和有限元函数空间
+        """
+        if self.source_matrix is None:
+            raise RuntimeError("请先调用generate_source_matrix生成热源矩阵")
 
-            mask = rect_mask | left_circle_mask | right_circle_mask
+        if not self.boundary_conditions:
+            print("警告: 未设置边界条件，将使用默认边界")
+
+        # 调用FenicsX求解器
+        u_sol, V = run_solver(
+            ndim=2,
+            length_x=self.layout_width,
+            length_y=self.layout_height,
+            bcs=self.boundary_conditions,
+            u0=u0,
+            nx=self.mesh_M,  # x方向网格数 (对应mesh_size的M)
+            ny=self.mesh_N,  # y方向网格数 (对应mesh_size的N)
+            F=self.source_matrix
+        )
+
+        self.temperature_field = u_sol
+        self.function_space = V
+        return u_sol, V
+
+    def visualize_source_distribution(self, save_path: Optional[str] = None):
+        """可视化热源分布
+        参数:
+            save_path: 保存路径（None则直接显示）
+        """
+        if self.source_matrix is None:
+            raise RuntimeError("请先生成热源矩阵（调用generate_source_matrix）")
+
+        plt.figure(figsize=(8, 6))
+        im = plt.imshow(
+            self.source_matrix,
+            origin='lower',
+            extent=[0, self.layout_width, 0, self.layout_height],
+            aspect='auto',
+            cmap='viridis',
+            vmin=0
+        )
+
+        # 绘制边界条件
+        for bc in self.boundary_conditions:
+            (x1, y1), (x2, y2) = bc
+            plt.plot([x1, x2], [y1, y2], 'r-', linewidth=2)
+            plt.plot([x1, x2], [y1, y2], 'ro', markersize=6)
+
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.colorbar(im, label='Heat Source Intensity (W)')
+        plt.title('Heat Source Distribution')
+        plt.xlabel('X Coordinate (m)')
+        plt.ylabel('Y Coordinate (m)')
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"热源分布图已保存至: {save_path}")
         else:
-            raise ValueError(f"不支持的形状类型：{shape_type}，请使用'rect'/'circle'/'capsule'")
+            plt.show()
+        plt.close()
 
-        # 对掩码区域赋值功率
-        F[mask] = power
+    def visualize_temperature_field(self, save_path: Optional[str] = None, interpolate_res: int = 200):
+        """可视化温度场分布
+        参数:
+            save_path: 保存路径（None则直接显示）
+            interpolate_res: 插值分辨率（默认200x200）
+        """
+        if self.temperature_field is None or self.function_space is None:
+            raise RuntimeError("请先求解温度场（调用solve方法）")
 
-    # 可视化热源分布
-    plot_source_and_bc(F, [], length, nx)
+        # 获取自由度坐标和解值
+        dof_coords = self.function_space.tabulate_dof_coordinates()
+        x_coords = dof_coords[:, 0]
+        y_coords = dof_coords[:, 1]
+        solution_values = self.temperature_field.x.array
 
-    return F
+        # 生成插值网格
+        grid_x, grid_y = np.mgrid[
+            np.min(x_coords):np.max(x_coords):interpolate_res*1j,
+            np.min(y_coords):np.max(y_coords):interpolate_res*1j
+        ]
+
+        # 插值到规则网格
+        temp_grid = griddata(
+            (x_coords, y_coords),
+            solution_values,
+            (grid_x, grid_y),
+            method='cubic'
+        )
+
+        plt.figure(figsize=(8, 6))
+        im = plt.imshow(
+            temp_grid,
+            cmap='inferno',
+            aspect='auto',
+            origin='lower',
+            extent=[
+                np.min(x_coords), np.max(x_coords),
+                np.min(y_coords), np.max(y_coords)
+            ]
+        )
+
+        cbar = plt.colorbar(im)
+        cbar.set_label('Temperature (K)')
+        plt.xlabel('X Coordinate (m)')
+        plt.ylabel('Y Coordinate (m)')
+        plt.title('2D Temperature Field')
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"温度场图已保存至: {save_path}")
+        else:
+            plt.show()
+        plt.close()
 
 
-def plot_source_and_bc(F, bcs, length, nx):
-    # 1. 设置画布和热源分布显示
-    plt.figure(figsize=(8, 6))  # 固定画布大小，避免自动调整导致比例失调
-    # 使用更适合热源强度的 colormap（如viridis），并明确设置非热源区域（0值）的显示
-    im = plt.imshow(
-        F,
-        origin='lower',
-        extent=[0, length, 0, length],
-        aspect='equal',
-        cmap='viridis',
-        vmin=0,
+# 示例调用（可直接运行测试）
+if __name__ == "__main__":
+    # 1. 定义布局参数（与SeqLS完全一致）
+    layout_domain = (0.1, 0.1)  # (width, height) = (x方向长度, y方向长度)
+    mesh_size = (256, 256)      # (N, M) = (y方向网格数, x方向网格数)
+
+    # 2. 创建温度场求解器实例
+    temp_solver = TemperatureFieldSolver(
+        layout_domain=layout_domain,
+        mesh_size=mesh_size
     )
 
-    # 2. 优化边界条件显示（从仅画端点改为画完整线段）
-    for bc in bcs:
-        # 提取线段的两个端点坐标
-        (x1, y1), (x2, y2) = bc
-        # 绘制线段（红色实线，更清晰）+ 端点标记（红色圆点）
-        plt.plot([x1, x2], [y1, y2], 'r-', linewidth=2)  # 线段
-        plt.plot([x1, x2], [y1, y2], 'ro', markersize=6)  # 端点
+    # 3. 设置边界条件
+    boundary_conditions = [
+        ([0.03, 0.0], [0.05, 0.0]),  # 底部边界线段
+        ([0.0, 0.01], [0.0, 0.02])   # 左侧边界线段
+    ]
+    temp_solver.set_boundary_conditions(boundary_conditions)
 
-    # 3. 添加网格线（可选，帮助对应物理坐标）
-    plt.grid(True, linestyle='--', alpha=0.7)
+    # 4. 定义热源（格式与SeqLS元件兼容）
+    heat_sources = [
+        {
+            "shape": "capsule",
+            "center": (0.05, 0.05),
+            "length": 0.06,
+            "width": 0.02,
+            "power": 5000
+        },
+        {
+            "shape": "rect",
+            "center": (0.08, 0.03),
+            "width": 0.03,
+            "height": 0.01,
+            "power": 3000
+        },
+        {
+            "shape": "circle",
+            "center": (0.02, 0.08),
+            "radius": 0.01,
+            "power": 2000
+        }
+    ]
 
-    # 4. 完善图例和标签
-    plt.colorbar(im, label='Heat Source Intensity (Power)')  # 明确颜色条含义
-    plt.title('Heat Source Distribution and Boundary Conditions')  # 更通用的标题
-    plt.xlabel('x Coordinate (m)')  # 补充单位（假设为米）
-    plt.ylabel('y Coordinate (m)')
-    plt.tight_layout()  # 自动调整布局，避免标签被截断
+    # 5. 生成热源矩阵并可视化
+    temp_solver.generate_source_matrix(heat_sources)
+    temp_solver.visualize_source_distribution("heat_source_dist.png")
 
-    # 5. 保存图片时提高分辨率，确保清晰
-    plt.savefig('debug_sourceF.png', dpi=300, bbox_inches='tight')
-    plt.close()  # 关闭画布，避免后续绘图重叠
+    # 6. 求解温度场并可视化
+    temp_solver.solve(u0=298.0)
+    temp_solver.visualize_temperature_field("temperature_field.png")
 
-
-if __name__ == "__main__":
-    # Run the test
-    test_run_solver_simple_heat_source()
-    print("Test passed successfully!")
+    print("温度场求解完成！")

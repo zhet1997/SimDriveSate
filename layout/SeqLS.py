@@ -2,8 +2,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Circle
-from typing import List, Tuple, Dict
-
+from typing import List, Tuple, Dict, Optional
 
 class SeqLS:
     def __init__(self,
@@ -418,7 +417,7 @@ class SeqLS:
 
         return placed_components
 
-    def visualize_layout(self, components: List[Dict], show_vem: bool = False):
+    def visualize_layout(self, components: List[Dict], show_vem: bool = False, save_path: Optional[str] = None):
         """可视化最终布局结果"""
         fig, ax = plt.subplots(figsize=(10, 10))
         ax.set_xlim(0, self.layout_width)
@@ -517,7 +516,14 @@ class SeqLS:
                 ax.scatter(x, y, color='red', s=8, alpha=0.6)
 
         plt.tight_layout()
-        plt.show()
+        # plt.show()
+        if save_path is not None:
+            plt.savefig(
+                save_path,
+                dpi=300,  # 高分辨率（默认100，300更清晰）
+                bbox_inches='tight'  # 裁剪空白边缘，确保内容完整
+            )
+            print(f"图像已保存至：{save_path}")
 
     def visualize_layout_process(self):
         """可视化布局过程"""
@@ -606,7 +612,7 @@ if __name__ == "__main__":
     random.seed(42)
     # 初始化 SeqLS
     layout_domain = (1.0, 1.0)  # 布局域尺寸 (1m × 1m)
-    mesh_size = (20, 20)  # 20×20 网格
+    mesh_size = (256, 256)  # 20×20 网格
     seq_ls = SeqLS(layout_domain, mesh_size)
 
     # 定义元件
@@ -634,8 +640,8 @@ if __name__ == "__main__":
             print(f"元件 ID: {comp['id']}, 形状: {comp['shape']}, 中心坐标: ({cx:.3f}, {cy:.3f})")
 
         # # 可视化最终布局
-        seq_ls.visualize_layout(result, show_vem=True)
-        # seq_ls.visualize_layout(result, show_vem=False)  # 不显示 VEM
+        # seq_ls.visualize_layout(result, show_vem=True, save_path="layout_result.png")
+        seq_ls.visualize_layout(result, show_vem=False, save_path="layout_result_256.png")
         # # 可视化布局过程
         # seq_ls.visualize_layout_process()
     else:
