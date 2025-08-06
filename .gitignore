@@ -1,0 +1,249 @@
+# 2D Satellite Layout Project .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Project Specific
+# Temporary test files
+test_*.py
+*_test.py
+temp_*.py
+debug_*.py
+
+# Data files (unless specifically needed)
+*.csv
+*.xlsx
+*.xls
+data/temp/
+data/cache/
+
+# Log files
+*.log
+logs/
+
+# Configuration files with sensitive data
+config_local.py
+secrets.py
+.env.local
+
+# Output files
+output/
+results/
+exports/
+
+# Backup files
+*.bak
+*.backup
+*_backup.*
+
+# Matplotlib cache
+.matplotlib/
+
+# Qt Creator files
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+*.o
+*.obj
+*.orig
+*.rej
+*.so.*
+*_qmlcache.qrc
+
+# PyQt specific
+*.ui.py
+*.qrc.py
+
+# Documentation build
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# Package builds
+*.tar.gz
+*.whl
+
+# Conda environments
+.conda/
+conda-meta/
+
+# Local development settings
+.local/
+local_settings.py
+
+# Simulation results
+simulation_results/
+*.sim
+*.result
+
+# Large data files
+*.h5
+*.hdf5
+*.nc
+*.netcdf
+
+# Temporary matplotlib figures
+figure_*.png
+plot_*.png
+temp_figure.*
+
+# System files
+.directory
+.DS_Store?

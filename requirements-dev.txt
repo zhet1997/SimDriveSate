@@ -1,0 +1,42 @@
+# Development Requirements for 2D Satellite Layout Project
+# Install with: pip install -r requirements-dev.txt
+
+# Include base requirements
+-r requirements.txt
+
+# Testing Framework
+pytest>=6.0.0
+pytest-qt>=4.0.0          # PyQt testing support
+pytest-cov>=3.0.0         # Coverage reporting
+pytest-mock>=3.6.0        # Mocking utilities
+
+# Code Quality and Formatting
+black>=22.0.0              # Code formatter
+isort>=5.10.0              # Import sorter
+flake8>=4.0.0              # Linting
+pylint>=2.12.0             # Advanced linting
+mypy>=0.950                # Type checking
+
+# Documentation
+sphinx>=4.0.0              # Documentation generator
+sphinx-rtd-theme>=1.0.0    # Read the Docs theme
+sphinx-autodoc-typehints>=1.12.0  # Type hints in docs
+
+# Development Tools
+ipython>=8.0.0             # Enhanced interactive shell
+jupyter>=1.0.0             # Jupyter notebooks for analysis
+pre-commit>=2.15.0         # Git hooks for code quality
+
+# Profiling and Performance
+memory-profiler>=0.60.0    # Memory usage profiling
+line-profiler>=3.5.0       # Line-by-line profiling
+
+# Additional Analysis Tools
+scikit-learn>=1.0.0        # Machine learning (for future features)
+pandas>=1.3.0              # Data analysis
+seaborn>=0.11.0            # Statistical visualization
+
+# Build and Packaging
+setuptools>=60.0.0
+wheel>=0.37.0
+twine>=4.0.0               # For package uploading
