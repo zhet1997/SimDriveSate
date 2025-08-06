@@ -193,7 +193,7 @@ For questions, issues, or contributions, please:
 ---
 
 *Built with PyQt6 and modern Python development practices for reliable, maintainable satellite component layout design.*
-### 数据生成器
+## 数据生成器
 
 ```
 运行主文件：python SimDriveSate/data_generator.py，配置文件：config.yaml
