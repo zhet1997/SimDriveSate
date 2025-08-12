@@ -1,6 +1,7 @@
 """
 Qt与Matplotlib图像集成统一接口
 解决两个绘图系统的坐标系统冲突和比例失调问题
+此文件保持向后兼容，同时桥接新的可视化系统
 """
 
 import io
@@ -144,7 +145,13 @@ class QtMatplotlibIntegration:
         """
         # 移除现有项（如果指定）
         if replace_existing is not None:
-            scene.removeItem(replace_existing)
+            try:
+                # 安全检查：确保对象仍在场景中
+                if replace_existing.scene() is not None:
+                    scene.removeItem(replace_existing)
+            except RuntimeError:
+                # C++对象已被删除，忽略错误
+                pass
         
         # 创建新的图像项
         pixmap_item = QGraphicsPixmapItem(pixmap)
@@ -283,9 +290,9 @@ def create_sdf_background(sdf_array: np.ndarray,
     )
 
 
-def create_temperature_background(temp_array: np.ndarray,
-                                 scene_width: float,
-                                 scene_height: float) -> QPixmap:
+def create_temperature_background(temp_array: np.ndarray, 
+                                scene_width: float, 
+                                scene_height: float) -> QPixmap:
     """创建温度场背景图像（便利函数）"""
     return QtMatplotlibIntegration.create_no_colorbar_image(
         temp_array, scene_width, scene_height,
@@ -293,3 +300,45 @@ def create_temperature_background(temp_array: np.ndarray,
         alpha=ImageIntegrationConfig.TEMPERATURE_ALPHA,
         interpolation=ImageIntegrationConfig.TEMPERATURE_INTERPOLATION
     )
+
+
+# 向后兼容：桥接新的可视化系统
+def create_sdf_background(sdf_array: np.ndarray, 
+                         scene_width: float, 
+                         scene_height: float) -> QPixmap:
+    """创建SDF背景图像（桥接新可视化系统）"""
+    try:
+        # 修复导入路径问题
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        
+        from visualization import FieldVisualizer, VisualizationConfig, PresetStyles
+        from backends.base_backend import ComputationResult, FieldType
+        
+        # 创建计算结果对象
+        result = ComputationResult(
+            field_data=sdf_array,
+            field_type=FieldType.SDF,
+            metadata={"unit": "m", "description": "有符号距离场"}
+        )
+        
+        # 创建可视化配置
+        config = VisualizationConfig(
+            scene_width=scene_width,
+            scene_height=scene_height,
+            layout_domain=(0.2, 0.2),  # 默认布局域
+            style=PresetStyles.sdf_field_style()
+        )
+        config.style.show_colorbar = False  # UI嵌入模式不显示色条
+        
+        return FieldVisualizer.create_field_visualization(result, config)
+        
+    except ImportError:
+        # 如果新系统不可用，使用原有方法
+        return QtMatplotlibIntegration.create_no_colorbar_image(
+            sdf_array, scene_width, scene_height,
+            colormap=ImageIntegrationConfig.SDF_COLORMAP,
+            alpha=ImageIntegrationConfig.SDF_ALPHA,
+            interpolation=ImageIntegrationConfig.SDF_INTERPOLATION
+        )

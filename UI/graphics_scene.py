@@ -108,6 +108,17 @@ class CustomGraphicsScene(QGraphicsScene):
     
     def place_sensor(self, position):
         """放置传感器"""
+        # 🔧 检查测点位置是否在边界内
+        if not self.sceneRect().contains(position):
+            print("[测点绘制] 测点位置超出边界，已取消")
+            from PyQt6.QtWidgets import QMessageBox
+            if self.views():
+                view = self.views()[0]
+                if hasattr(view, 'window'):
+                    QMessageBox.warning(view.window(), "Invalid Position", 
+                                       "测点位置必须在画布边界内！\nSensor must be placed within canvas bounds!")
+            return
+        
         # 创建传感器状态
         sensor_state = {
             'id': self.component_id_counter,
@@ -384,18 +395,58 @@ class CustomGraphicsScene(QGraphicsScene):
                 'center': (center_x, center_y)
             }
         
-        # 创建图形项
-        item = create_component_item(component_state)
+        # 🔄 使用数据同步器处理手动绘制（新方式）
+        try:
+            # 转换为数据管理器格式（物理单位：米）
+            scene_scale = 4000  # 当前配置
+            manager_data = {
+                'type': self.current_draw_mode,
+                'center': [center_x / scene_scale, center_y / scene_scale],
+                'power': power
+            }
+            
+            # 添加几何属性
+            if self.current_draw_mode == 'rect':
+                manager_data['width'] = rect.width() / scene_scale
+                manager_data['height'] = rect.height() / scene_scale
+            elif self.current_draw_mode == 'circle':
+                radius = min(rect.width(), rect.height()) / 2
+                manager_data['radius'] = radius / scene_scale
+            elif self.current_draw_mode == 'capsule':
+                manager_data['length'] = rect.width() / scene_scale
+                manager_data['width'] = rect.height() / scene_scale
+            
+            # 通过数据同步器添加组件
+            from data_synchronizer import get_data_synchronizer
+            data_sync = get_data_synchronizer()
+            component_id = data_sync.handle_manual_draw(manager_data)
+            
+            print(f"[手动绘制] 通过数据管理器创建组件: {component_id}")
+            
+            # 🔄 从数据管理器获取组件数据并创建UI显示
+            comp_data = data_sync.get_all_components()[-1]  # 获取最新添加的组件
+            
+            # 将数据管理器格式转换为UI格式
+            if self.views():
+                main_window = self.views()[0].window()
+                if hasattr(main_window, '_convert_manager_data_to_ui'):
+                    ui_comp_data = main_window._convert_manager_data_to_ui(comp_data)
+                    
+                    # 创建图形项
+                    item = create_component_item(ui_comp_data)
+                    
+                    # 添加到场景
+                    self.addItem(item)
+                    item.setPos(center_x, center_y)
+                    
+                    print(f"[手动绘制] UI显示创建成功: {ui_comp_data['type']}")
         
-        # 添加到场景
-        self.addItem(item)
-        item.setPos(center_x, center_y)
+        except Exception as e:
+            print(f"[手动绘制] 数据管理器处理失败，使用原有方式: {e}")
+            # 回退到原有方式
+            item = create_component_item(component_state)
+            self.addItem(item)
+            item.setPos(center_x, center_y)
         
         # 增加ID计数器
         self.component_id_counter += 1
-        
-        # 更新组件列表
-        if self.views():
-            view = self.views()[0]
-            if hasattr(view, 'window') and hasattr(view.window(), 'update_components_list'):
-                view.window().update_components_list()

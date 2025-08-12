@@ -6,15 +6,24 @@ from interfaces import ComputationBackend
 class SDFBackend(ComputationBackend):
     """SDF后端实现"""
     
-    def compute(self, scene_data: list[dict], grid_shape: tuple[int, int]) -> np.ndarray:
+    def compute(self, scene_data: list[dict], grid_shape: tuple[int, int], layout_size: tuple[float, float] = (0.1, 0.1)) -> np.ndarray:
         """
         计算场景的有向距离函数(SDF)
         :param scene_data: 场景数据
         :param grid_shape: 网格形状 (height, width)
+        :param layout_size: 布局尺寸 (width, height) 单位：米
         :return: SDF数组
         """
-        # 为了简化，我们假设布局大小为(1.0, 1.0)
-        layout_size = (1.0, 1.0)
+        # 🔧 使用传入的layout_size参数，而非硬编码
+        print(f"[SDFBackend] 使用布局尺寸: {layout_size}米, 网格: {grid_shape}, 组件数: {len(scene_data)}")
+        
+        # 🔧 添加组件坐标范围调试
+        if scene_data:
+            centers = [comp.get('center', comp.get('coords', [0, 0])) for comp in scene_data]
+            x_coords = [c[0] for c in centers]
+            y_coords = [c[1] for c in centers]
+            print(f"[SDFBackend] 组件坐标范围: X=[{min(x_coords):.4f}, {max(x_coords):.4f}], Y=[{min(y_coords):.4f}, {max(y_coords):.4f}]")
+        
         height, width = grid_shape
         sdf = np.full((height, width), float('inf'))
         
@@ -39,20 +48,31 @@ class SDFBackend(ComputationBackend):
     def _distance_to_component(self, point: tuple[float, float], component: dict) -> float:
         """计算点到元件的有向距离"""
         x, y = point
-        c = component['coords']
-        t = component['type']
+        # 🔄 适配ComponentManager数据格式：center而不是coords
+        c = component.get('center', component.get('coords', [0, 0]))
+        t = component.get('type', component.get('shape', 'unknown'))
         
         # 散热器和传感器不参与SDF计算，返回无穷大
         if t in ['radiator', 'sensor']:
             return float('inf')
         
         # 只有物理组件（rect, circle, capsule）参与SDF计算
-        s = component['size']
+        # 🔄 适配ComponentManager数据格式：不同组件类型有不同字段
         if t == 'rect':
+            # rect组件：width, height字段
+            width = component.get('width', 0.01)
+            height = component.get('height', 0.01)
+            s = [width, height]
             return self._distance_to_rect((x, y), c, s)
         elif t == 'circle':
-            return self._distance_to_circle((x, y), c, s)
+            # circle组件：radius字段
+            radius = component.get('radius', 0.005)
+            return self._distance_to_circle((x, y), c, radius)
         elif t == 'capsule':
+            # capsule组件：length, width字段
+            length = component.get('length', 0.02)
+            width = component.get('width', 0.01)
+            s = [length, width]
             return self._distance_to_capsule((x, y), c, s)
         return float('inf')
         

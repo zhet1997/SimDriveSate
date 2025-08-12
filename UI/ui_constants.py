@@ -4,16 +4,16 @@ UI常量和样式定义
 """
 
 # 应用配置常量
-SCENE_SCALE = 500  # 每米500像素
-DEFAULT_LAYOUT_SIZE = (1.0, 1.0)  # 默认布局尺寸（米）
+SCENE_SCALE = 4000  # 每米4000像素 - 适配0.1×0.1米精密布局域
+DEFAULT_LAYOUT_SIZE = (0.1, 0.1)  # 默认布局尺寸（米）- 匹配微型卫星组件精密设计
 DEFAULT_THERMAL_CONDUCTIVITY = 100.0  # 默认热导率
 DEFAULT_MESH_RESOLUTION = 50  # 默认网格分辨率
-GRID_INTERVAL_METERS = 0.1  # 网格间隔（米）
+GRID_INTERVAL_METERS = 0.01  # 网格间隔（米）- 10mm精密网格适配小尺寸元件
 
 # 组件尺寸限制
 MIN_COMPONENT_SIZE = 10  # 最小组件尺寸（像素）
-POWER_RANGE = (0.0, 1000.0)  # 功率范围（瓦特）
-DEFAULT_POWER_RANGE = (5.0, 50.0)  # 默认随机功率范围
+POWER_RANGE = (0.0, 10000.0)  # 功率范围（瓦特）
+DEFAULT_POWER_RANGE = (500.0, 15000.0)  # 默认随机功率范围
 
 # 字体配置
 DEFAULT_FONT_FAMILY = "Arial, sans-serif"
@@ -36,6 +36,9 @@ class Colors:
     CAPSULE_FILL = (144, 238, 144, 150)  # 浅绿色填充
     CAPSULE_SELECTED = (100, 255, 100, 150)  # 选中绿色
     
+    # 🆕 高亮边框颜色
+    HIGHLIGHT_BORDER = (255, 255, 0)  # 黄色高亮边框
+    
     # 散热器颜色
     RADIATOR_BORDER = (128, 0, 128)  # 紫色
     RADIATOR_FILL = (221, 160, 221, 150)  # 浅紫色填充
@@ -48,6 +51,7 @@ class Colors:
     
     # UI颜色
     GRID_LINE = (200, 200, 200)  # 网格线颜色
+    GRID_LABEL = (100, 100, 100)  # 网格标签颜色
     BORDER_LINE = (0, 0, 0)  # 边界线颜色
     PREVIEW_LINE = "red"  # 预览线颜色
     TEXT_COLOR = (0, 0, 0)  # 文本颜色
@@ -145,6 +149,32 @@ class StyleSheets:
     
     # 分隔线样式
     SEPARATOR = "margin: 15px 5px;"
+    
+    # 🆕 属性表格样式
+    PROPERTY_TABLE = """
+        QTableWidget {
+            background-color: #ffffff;
+            border: 1px solid #bdc3c7;
+            border-radius: 3px;
+            font-size: 10px;
+            gridline-color: #ecf0f1;
+        }
+        QTableWidget::item {
+            padding: 3px;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        QTableWidget::item:selected {
+            background-color: #3498db;
+            color: white;
+        }
+        QHeaderView::section {
+            background-color: #34495e;
+            color: white;
+            padding: 4px;
+            border: none;
+            font-weight: bold;
+        }
+    """
     
     # 标签样式
     SECTION_LABEL = "font-weight: bold; font-size: 14px; margin: 10px;"

@@ -3,7 +3,7 @@
 包含绘制模式控制、SDF控制和组件列表管理
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict
 from PyQt6.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QButtonGroup, QFrame, QCheckBox, QScrollArea,
                              QDoubleSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
@@ -21,6 +21,10 @@ class SidebarPanel:
     
     def __init__(self, main_window: 'MainWindow'):
         self.main_window = main_window
+        
+        # 🆕 组件ID到标签页索引的映射
+        self.component_id_to_tab_index: Dict[str, int] = {}
+        
         self.setup_sidebar()
     
     def setup_sidebar(self):
@@ -52,9 +56,9 @@ class SidebarPanel:
         self._create_drawing_mode_section(layout_layout)
         self._create_separator(layout_layout)
         
-        # 添加SDF控制区域
-        self._create_sdf_section(layout_layout)
-        self._create_separator(layout_layout)
+        # 🔄 SDF控制已移至右侧面板
+        # self._create_sdf_section(layout_layout)
+        # self._create_separator(layout_layout)
         
         # 添加组件管理区域（标签页形式）
         self._create_components_tabs_section(layout_layout)
@@ -63,7 +67,7 @@ class SidebarPanel:
         layout_layout.addStretch()
         
         # 添加到主标签页
-        self.main_tabs.addTab(layout_widget, "元件布局 (Component Layout)")
+        self.main_tabs.addTab(layout_widget, "元件布局")
     
     def _create_temperature_reconstruction_tab(self):
         """创建温度重构标签页"""
@@ -86,7 +90,7 @@ class SidebarPanel:
         temp_layout.addStretch()
         
         # 添加到主标签页
-        self.main_tabs.addTab(temp_widget, "温度重构 (Temperature Reconstruction)")
+        self.main_tabs.addTab(temp_widget, "温度重构")
     
     def _create_sensor_mode_section(self, layout: QVBoxLayout):
         """创建测点放置模式区域"""
@@ -330,7 +334,29 @@ class SidebarPanel:
     
     def update_components_list(self):
         """更新组件列表显示"""
-        # 获取所有组件（排除传感器）
+        # 🔄 从数据管理器获取组件数据（新方式）
+        if hasattr(self.main_window, 'data_sync'):
+            try:
+                all_components = self.main_window.data_sync.get_all_components()
+                print(f"[侧边栏] 从数据管理器获取到 {len(all_components)} 个组件")
+                
+                # 清除现有标签页和映射
+                self.components_tabs.clear()
+                self.component_id_to_tab_index.clear()
+                
+                if not all_components:
+                    # 显示无组件提示
+                    self._show_no_components_message()
+                else:
+                    # 为每个组件创建标签页
+                    for i, component_data in enumerate(all_components):
+                        self._create_component_tab_from_data(component_data, i)
+                
+                return
+            except Exception as e:
+                print(f"[侧边栏] 数据管理器获取失败，使用原有方式: {e}")
+        
+        # 原有方式作为后备
         components = []
         for item in self.main_window.scene.items():
             if hasattr(item, 'get_state') and item.get_state().get('type') != 'sensor':
@@ -338,6 +364,7 @@ class SidebarPanel:
         
         # 清除现有标签页
         self.components_tabs.clear()
+        self.component_id_to_tab_index.clear()
         
         if not components:
             # 显示无组件提示
@@ -347,8 +374,41 @@ class SidebarPanel:
             for i, component_item in enumerate(components):
                 self._create_component_tab(component_item, i)
     
+    def _create_component_tab_from_data(self, component_data, index):
+        """🆕 从数据管理器数据创建标签页"""
+        # 创建标签页内容
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        tab_layout.setContentsMargins(10, 10, 10, 10)
+        tab_layout.setSpacing(8)
+        
+        # 组件类型和ID标题（简化显示：编号 + 图标）
+        comp_type = component_data.get('type', 'unknown')
+        component_icon = ComponentNames.COMPONENT_TYPE_ICONS.get(comp_type, '📦')
+        tab_name = f"{index + 1} {component_icon}"
+        
+        # 🆕 记录组件ID到标签页索引的映射
+        component_id = component_data.get('id')
+        if component_id:
+            self.component_id_to_tab_index[str(component_id)] = index
+        
+        # 创建属性表格（简化版，直接从数据创建）
+        self._create_property_table_from_data(tab_layout, component_data)
+        
+        # 添加删除按钮
+        delete_button = QPushButton(f"{Icons.DELETE} 删除此元件")
+        delete_button.setStyleSheet(StyleSheets.DELETE_COMPONENT_BUTTON)
+        delete_button.clicked.connect(lambda: self._delete_component_by_id(component_id))
+        tab_layout.addWidget(delete_button)
+        
+        # 添加弹性空间
+        tab_layout.addStretch()
+        
+        # 添加标签页
+        self.components_tabs.addTab(tab_widget, tab_name)
+    
     def _create_component_tab(self, component_item, index):
-        """为组件创建标签页"""
+        """为组件创建标签页（原有方式）"""
         state = component_item.get_state()
         
         # 创建标签页内容
@@ -361,13 +421,18 @@ class SidebarPanel:
         component_icon = ComponentNames.COMPONENT_TYPE_ICONS.get(state['type'], '📦')
         tab_name = f"{index + 1} {component_icon}"
         
+        # 🆕 记录组件ID到标签页索引的映射
+        component_id = state.get('id')
+        if component_id:
+            self.component_id_to_tab_index[str(component_id)] = index
+        
         # 创建属性表格
         self._create_property_table(tab_layout, component_item, state)
         
         # 添加删除按钮
         delete_button = QPushButton(f"{Icons.DELETE} 删除此元件")
         delete_button.setStyleSheet(StyleSheets.DELETE_COMPONENT_BUTTON)
-        delete_button.clicked.connect(lambda: self._delete_component(component_item))
+        delete_button.clicked.connect(lambda: self._delete_component_by_id(state.get('id')))
         tab_layout.addWidget(delete_button)
         
         # 添加弹性空间
@@ -414,7 +479,12 @@ class SidebarPanel:
         # 尺寸属性
         if state['type'] == 'circle':
             meters_size = self._pixels_to_meters_size(state['size'])
-            size_text = f"半径: {meters_size:.3f}m"
+            # 对于圆形，size是[直径, 直径]，所以半径是size[0]/2
+            if isinstance(meters_size, (list, tuple)):
+                radius_meters = meters_size[0] / 2  # 直径的一半是半径
+            else:
+                radius_meters = meters_size / 2
+            size_text = f"半径: {radius_meters:.3f}m"
         elif state['type'] == 'radiator':
             start_point = self._pixels_to_meters_coords(state['start_point'])
             end_point = self._pixels_to_meters_coords(state['end_point'])

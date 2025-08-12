@@ -10,7 +10,7 @@ import yaml
 import numpy as np
 from PyQt6.QtWidgets import (QMainWindow, QGraphicsView, QToolBar, QFileDialog, 
                              QMessageBox, QStatusBar, QGraphicsPixmapItem)
-from PyQt6.QtGui import QPainter, QColor, QPen, QAction
+from PyQt6.QtGui import QPainter, QColor, QPen, QAction, QFont, QPixmap
 from PyQt6.QtCore import QThread, QTimer
 from graphics_scene import CustomGraphicsScene
 from graphics_items import create_component_item, RectItem, CircleItem, CapsuleItem
@@ -22,6 +22,16 @@ from ui_constants import (SCENE_SCALE, DEFAULT_LAYOUT_SIZE, DEFAULT_THERMAL_COND
 from ui_utils import (convert_component_to_meters, create_sdf_figure, create_temperature_figure,
                       calculate_sdf_grid_shape)
 
+# 导入新的模块
+try:
+    from data_bridge import JSONComponentHandler, DataFormatConverter
+    from backends import ThermalSimulationBackend, FieldType
+    from visualization import FieldVisualizer, VisualizationConfig, ThermalFieldPlotter
+    NEW_FEATURES_AVAILABLE = True
+except ImportError as e:
+    print(f"警告：新功能模块导入失败，部分功能不可用: {e}")
+    NEW_FEATURES_AVAILABLE = False
+
 # 添加layout目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'layout'))
 
@@ -32,7 +42,15 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Satellite Component Visualization & Physics Field Prediction")
-        self.setGeometry(100, 100, 1200, 800)
+        # 🔄 调整窗口尺寸以适应三列式布局
+        self.setGeometry(100, 100, 1200, 700)
+        
+        # 🔧 修复Wayland显示协议兼容性
+        self.setMinimumSize(1000, 600)  # 设置最小尺寸
+        self.setSizePolicy(
+            self.sizePolicy().horizontalPolicy(), 
+            self.sizePolicy().verticalPolicy()
+        )
         
         # 初始化布局参数
         self.layout_size = DEFAULT_LAYOUT_SIZE
@@ -60,7 +78,15 @@ class MainWindow(QMainWindow):
         # 创建UI组件
         self._create_toolbar()
         self._create_sidebar()
+        self._create_right_panel()  # 🆕 创建右侧面板
         self._create_status_bar()
+        
+        # 🆕 扩展侧边栏功能
+        try:
+            from sidebar_panel_extension import extend_sidebar_panel
+            extend_sidebar_panel()
+        except ImportError as e:
+            print(f"[MainWindow] 警告: 无法加载侧边栏扩展: {e}")
         
         # 初始化工作线程
         self._setup_worker_thread()
@@ -76,6 +102,48 @@ class MainWindow(QMainWindow):
         
         # 初始化组件列表
         self.sidebar.update_components_list()
+        
+        # 初始化统一数据管理中心
+        from component_manager import get_component_manager
+        from data_synchronizer import get_data_synchronizer
+        
+        self.component_manager = get_component_manager()
+        self.data_sync = get_data_synchronizer()
+        
+        # 连接数据变更信号到UI更新
+        self.data_sync.ui_update_needed.connect(self.update_components_list)
+        
+        # 🆕 连接选择同步信号
+        self.data_sync.selection_changed.connect(self.on_component_selected)
+        self.data_sync.selection_cleared.connect(self.on_selection_cleared)
+        
+        print("[MainWindow] 数据管理中心初始化完成")
+        
+        # 添加简单的调试监控
+        self.component_manager.component_added.connect(
+            lambda cid: print(f"[DEBUG] 组件添加: {cid}")
+        )
+        self.component_manager.component_removed.connect(
+            lambda cid: (
+                print(f"[DEBUG] 组件删除: {cid}"),
+                self._remove_graphics_item_by_id(cid)
+            )
+        )
+        
+        # 初始化热仿真后端（如果新功能可用）
+        if NEW_FEATURES_AVAILABLE:
+            self.thermal_backend = ThermalSimulationBackend()
+            self.thermal_backend.initialize()
+        else:
+            self.thermal_backend = None
+        
+        # 🆕 初始化图像管理器
+        from image_manager import get_image_manager
+        self.image_manager = get_image_manager()
+        self.image_manager.set_scene(self.scene)
+        
+        # 注册图像计算回调
+        self._register_image_compute_callbacks()
     
     def _setup_scene(self):
         """设置场景参数"""
@@ -87,46 +155,131 @@ class MainWindow(QMainWindow):
         self._add_grid()
     
     def _add_grid(self):
-        """添加坐标网格"""
+        """添加坐标网格、比例尺和坐标标签"""
         width, height = self.layout_size
         scene_width = width * self.scene_scale
         scene_height = height * self.scene_scale
         grid_interval = GRID_INTERVAL_METERS * self.scene_scale
         
-        # 绘制垂直线
+        # 绘制垂直线和X轴坐标标签
         pen = QPen(QColor(*Colors.GRID_LINE), 1)
-        for x in np.arange(0, scene_width + grid_interval, grid_interval):
+        for i, x in enumerate(np.arange(0, scene_width + grid_interval, grid_interval)):
             self.scene.addLine(x, 0, x, scene_height, pen)
+            # 添加X轴坐标标签（毫米单位）
+            x_mm = i * GRID_INTERVAL_METERS * 1000
+            if i % 2 == 0:  # 只显示偶数标签，避免拥挤
+                text_item = self.scene.addText(f"{x_mm:.0f}", QFont("Arial", 7))
+                text_item.setPos(x - 8, scene_height + 5)
+                text_item.setDefaultTextColor(QColor(*Colors.GRID_LABEL))
             
-        # 绘制水平线
-        for y in np.arange(0, scene_height + grid_interval, grid_interval):
+        # 绘制水平线和Y轴坐标标签
+        for i, y in enumerate(np.arange(0, scene_height + grid_interval, grid_interval)):
             self.scene.addLine(0, y, scene_width, y, pen)
+            # 添加Y轴坐标标签（毫米单位）
+            y_mm = (height * 1000) - (i * GRID_INTERVAL_METERS * 1000)  # Y轴从上到下递减
+            if i % 2 == 0:  # 只显示偶数标签，避免拥挤
+                text_item = self.scene.addText(f"{y_mm:.0f}", QFont("Arial", 7))
+                text_item.setPos(-25, y - 8)
+                text_item.setDefaultTextColor(QColor(*Colors.GRID_LABEL))
             
         # 绘制边界
         border_pen = QPen(QColor(*Colors.BORDER_LINE), 2)
         self.scene.addRect(0, 0, scene_width, scene_height, border_pen)
+        
+        # 添加坐标轴单位标识
+        x_unit_label = self.scene.addText("X (mm)", QFont("Arial", 8, QFont.Weight.Bold))
+        x_unit_label.setPos(scene_width/2 - 20, scene_height + 20)
+        x_unit_label.setDefaultTextColor(QColor(*Colors.GRID_LABEL))
+        
+        y_unit_label = self.scene.addText("Y (mm)", QFont("Arial", 8, QFont.Weight.Bold))
+        y_unit_label.setPos(-55, scene_height/2 - 10)
+        y_unit_label.setDefaultTextColor(QColor(*Colors.GRID_LABEL))
+        y_unit_label.setRotation(-90)  # 垂直显示
+        
+        # 添加比例尺
+        self._add_scale_ruler()
+    
+    def _add_scale_ruler(self):
+        """添加比例尺"""
+        width, height = self.layout_size
+        scene_width = width * self.scene_scale
+        scene_height = height * self.scene_scale
+        
+        # 比例尺位置（右下角）
+        ruler_x = scene_width - 80
+        ruler_y = scene_height - 30
+        
+        # 比例尺长度（20mm）
+        ruler_length_mm = 20
+        ruler_length_pixels = (ruler_length_mm / 1000) * self.scene_scale
+        
+        # 绘制比例尺线条
+        ruler_pen = QPen(QColor(0, 0, 0), 2)
+        self.scene.addLine(ruler_x, ruler_y, ruler_x + ruler_length_pixels, ruler_y, ruler_pen)
+        
+        # 比例尺端点标记
+        self.scene.addLine(ruler_x, ruler_y - 3, ruler_x, ruler_y + 3, ruler_pen)
+        self.scene.addLine(ruler_x + ruler_length_pixels, ruler_y - 3, 
+                          ruler_x + ruler_length_pixels, ruler_y + 3, ruler_pen)
+        
+        # 比例尺标签
+        scale_text = self.scene.addText(f"{ruler_length_mm}mm", QFont("Arial", 9, QFont.Weight.Bold))
+        scale_text.setPos(ruler_x + ruler_length_pixels/2 - 15, ruler_y - 20)
+        scale_text.setDefaultTextColor(QColor(0, 0, 0))
+        
+        # 比例尺背景框（提高可读性）
+        scale_bg = self.scene.addRect(ruler_x - 5, ruler_y - 25, ruler_length_pixels + 35, 35,
+                                     QPen(QColor(200, 200, 200)), QColor(255, 255, 255, 200))
+        scale_bg.setZValue(-1)  # 背景在后面
     
     def _create_toolbar(self):
         """创建主工具栏"""
         toolbar = QToolBar("Main Toolbar")
         self.addToolBar(toolbar)
         
-        # 文件操作按钮
-        load_action = QAction(f"{Icons.LOAD_FILE} YAML", self)
-        load_action.triggered.connect(self.load_from_yaml)
-        toolbar.addAction(load_action)
+        # YAML文件操作按钮
+        load_yaml_action = QAction(f"{Icons.LOAD_FILE} 加载 YAML", self)
+        load_yaml_action.triggered.connect(self.load_from_yaml)
+        toolbar.addAction(load_yaml_action)
+        
+        save_yaml_action = QAction(f"{Icons.SAVE_FILE} 保存 YAML", self)
+        save_yaml_action.triggered.connect(self.save_to_yaml)
+        toolbar.addAction(save_yaml_action)
         
         # 添加分隔符
         toolbar.addSeparator()
         
-        # 保存按钮（移到工具栏右侧）
-        save_action = QAction(f"{Icons.SAVE_FILE} YAML", self)
-        save_action.triggered.connect(self.save_to_yaml)
-        toolbar.addAction(save_action)
+        # JSON文件操作按钮（仅在新功能可用时添加）
+        if NEW_FEATURES_AVAILABLE:
+            load_json_action = QAction(f"{Icons.LOAD_FILE} 加载 JSON", self)
+            load_json_action.triggered.connect(self.load_from_json)
+            toolbar.addAction(load_json_action)
+            
+            save_json_action = QAction(f"{Icons.SAVE_FILE} 保存 JSON", self)
+            save_json_action.triggered.connect(self.save_to_json)
+            toolbar.addAction(save_json_action)
+            
+            # 添加分隔符
+            toolbar.addSeparator()
+            
+            # 热仿真按钮
+            thermal_action = QAction("🔥 热仿真", self)
+            thermal_action.triggered.connect(self.run_thermal_simulation)
+            toolbar.addAction(thermal_action)
     
     def _create_sidebar(self):
         """创建侧边栏"""
         self.sidebar = SidebarPanel(self)
+    
+    def _create_right_panel(self):
+        """🆕 创建右侧面板"""
+        from right_panel import RightPanel
+        self.right_panel = RightPanel(self)
+        
+        # 设置输出重定向
+        from console_output_redirect import get_output_manager
+        self.output_manager = get_output_manager()
+        self.output_manager.setup_redirection(self.right_panel)
     
     def _create_status_bar(self):
         """创建状态栏"""
@@ -181,10 +334,22 @@ class MainWindow(QMainWindow):
     def on_sdf_show_toggled(self, checked: bool):
         """SDF显示开关回调"""
         self.sdf_visible = checked
-        self.sidebar.sdf_update_button.setVisible(checked)
+        # 🔄 SDF控件现在在右侧面板中
+        if hasattr(self, 'right_panel'):
+            self.right_panel.sdf_update_button.setVisible(checked)
         
-        if self.sdf_background_item:
-            self.sdf_background_item.setVisible(checked)
+        # 安全检查：确保对象有效且未被删除
+        if self.sdf_background_item is not None:
+            try:
+                # 检查对象是否仍在场景中（避免访问已删除的C++对象）
+                if self.sdf_background_item.scene() is not None:
+                    self.sdf_background_item.setVisible(checked)
+                else:
+                    # 对象已被删除，重置引用
+                    self.sdf_background_item = None
+            except RuntimeError:
+                # C++对象已被删除，重置引用
+                self.sdf_background_item = None
         
         if checked:
             self.status_bar.showMessage("SDF display enabled")
@@ -345,11 +510,17 @@ class MainWindow(QMainWindow):
             return
             
         try:
-            # 收集元件数据
+            # 🔄 从数据管理器获取组件数据（新方式）
+            print("[YAML保存] 从数据管理器获取组件数据")
+            all_components = self.data_sync.get_all_components()
+            
+            # 转换为UI格式（YAML保存需要UI格式）
             components = []
-            for item in self.scene.items():
-                if hasattr(item, 'get_state'):
-                    components.append(item.get_state())
+            for comp_data in all_components:
+                ui_comp_data = self._convert_manager_data_to_ui(comp_data)
+                components.append(ui_comp_data)
+            
+            print(f"[YAML保存] 准备保存 {len(components)} 个组件")
                     
             # 构建数据结构
             data = {
@@ -376,6 +547,226 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
     
+    def load_from_json(self):
+        """从JSON文件加载组件布局"""
+        if not NEW_FEATURES_AVAILABLE:
+            QMessageBox.warning(self, "功能不可用", "JSON功能需要新模块支持，请检查安装")
+            return
+            
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "加载JSON组件文件", "", "JSON Files (*.json)"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            # 使用JSON处理器加载数据
+            components_dg, metadata = JSONComponentHandler.load_components_from_json(file_path)
+            
+            # 转换为UI格式
+            ui_components = DataFormatConverter.data_generator_to_ui(components_dg, self.scene_scale)
+            
+            # 更新布局参数（如果元数据中有）
+            if "layout_info" in metadata:
+                layout_info = metadata["layout_info"]
+                if "size" in layout_info:
+                    self.layout_size = tuple(layout_info["size"])
+                if "thermal_conductivity" in layout_info:
+                    self.k = layout_info["thermal_conductivity"]
+                if "mesh_resolution" in layout_info:
+                    self.mesh_resolution = tuple(layout_info["mesh_resolution"])
+            
+            # 设置场景大小
+            scene_width = self.layout_size[0] * self.scene_scale
+            scene_height = self.layout_size[1] * self.scene_scale
+            self.scene.setSceneRect(0, 0, scene_width, scene_height)
+            
+            # 清空当前场景
+            self.scene.clear()
+            self._add_grid()  # 重新添加网格
+            
+            # 🔄 使用数据同步器处理JSON加载（新方式）
+            print(f"[JSON加载] 通过数据管理器加载 {len(components_dg)} 个组件")
+            self.data_sync.handle_json_load(components_dg)
+            
+            # 🔄 从数据管理器重新创建UI显示
+            all_components = self.data_sync.get_all_components()
+            for comp_data in all_components:
+                # 将数据管理器格式转换为UI显示格式
+                ui_comp_data = self._convert_manager_data_to_ui(comp_data)
+                self._create_item_from_ui_state(ui_comp_data)
+            
+            self.status_bar.showMessage(f"从JSON文件加载了 {len(all_components)} 个组件: {file_path}")
+            
+            # UI更新会通过信号自动触发，但这里手动调用确保同步
+            self.update_components_list()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "加载失败", f"无法加载JSON文件: {str(e)}")
+    
+    def save_to_json(self):
+        """保存组件布局到JSON文件"""
+        if not NEW_FEATURES_AVAILABLE:
+            QMessageBox.warning(self, "功能不可用", "JSON功能需要新模块支持，请检查安装")
+            return
+            
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存JSON组件文件", "", "JSON Files (*.json)"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            # 🔄 从数据管理器获取组件数据（新方式）
+            print("[JSON保存] 从数据管理器获取组件数据")
+            dg_components = self.data_sync.get_components_for_calculation()
+            
+            if not dg_components:
+                QMessageBox.warning(self, "警告", "没有组件可保存")
+                return
+            
+            print(f"[JSON保存] 准备保存 {len(dg_components)} 个组件")
+            
+            # 构建元数据
+            metadata = {
+                "layout_domain": self.layout_size,
+                "thermal_conductivity": self.k,
+                "mesh_resolution": self.mesh_resolution,
+                "creation_time": "Generated from UI",
+                "total_components": len(dg_components)
+            }
+            
+            # 保存为JSON文件
+            JSONComponentHandler.save_components_to_json(
+                components=dg_components,
+                file_path=file_path,
+                metadata=metadata,
+                format_type="full_sample"
+            )
+            
+            self.status_bar.showMessage(f"保存了 {len(dg_components)} 个组件到JSON文件: {file_path}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "保存失败", f"无法保存JSON文件: {str(e)}")
+    
+    def run_thermal_simulation(self):
+        """运行热仿真计算"""
+        if not NEW_FEATURES_AVAILABLE or self.thermal_backend is None:
+            QMessageBox.warning(self, "功能不可用", "热仿真功能需要新模块支持，请检查安装")
+            return
+            
+        try:
+            # 🔄 从数据管理器获取组件数据（新方式）
+            print("[热仿真] 从数据管理器获取组件数据")
+            dg_components = self.data_sync.get_components_for_calculation()
+            
+            if not dg_components:
+                QMessageBox.warning(self, "警告", "没有组件可进行热仿真")
+                return
+            
+            print(f"[热仿真] 获取到 {len(dg_components)} 个组件用于计算")
+            
+            # 创建热仿真输入数据
+            input_data = DataFormatConverter.create_thermal_simulation_input(
+                components=dg_components,
+                layout_domain=self.layout_size,
+                boundary_temperature=298.0  # 默认室温
+            )
+            
+            self.status_bar.showMessage("正在进行热仿真计算...")
+            
+            # 计算温度场
+            grid_shape = (256, 256)
+            result = self.thermal_backend.compute_field(
+                input_data=input_data,
+                field_type=FieldType.TEMPERATURE,
+                grid_shape=grid_shape
+            )
+            
+            if result.is_valid():
+                # 显示温度场
+                self._display_thermal_result(result)
+                
+                self.status_bar.showMessage(f"热仿真完成，计算时间: {result.computation_time:.2f}秒")
+            else:
+                QMessageBox.critical(self, "计算失败", f"热仿真计算失败: {result.error_info}")
+                self.status_bar.showMessage("热仿真计算失败")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"热仿真过程中发生错误: {str(e)}")
+            self.status_bar.showMessage("热仿真计算失败")
+    
+    def _convert_manager_data_to_ui(self, comp_data: Dict) -> Dict:
+        """将数据管理器格式转换为UI显示格式"""
+        ui_data = {
+            'id': comp_data.get('id'),
+            'type': comp_data.get('type', comp_data.get('shape')),  # 兼容shape字段
+            'power': comp_data.get('power', 0.0)
+        }
+        
+        # 转换坐标（从米到像素）
+        center = comp_data.get('center', [0, 0])
+        ui_data['coords'] = (center[0] * self.scene_scale, center[1] * self.scene_scale)
+        
+        # 转换尺寸（根据类型处理）
+        comp_type = ui_data['type']
+        if comp_type == 'rect':
+            width = comp_data.get('width', 0.01) * self.scene_scale
+            height = comp_data.get('height', 0.01) * self.scene_scale
+            ui_data['size'] = [width, height]
+        elif comp_type == 'circle':
+            radius = comp_data.get('radius', 0.005) * self.scene_scale
+            ui_data['size'] = [radius * 2, radius * 2]  # 直径
+            ui_data['radius'] = radius
+        elif comp_type == 'capsule':
+            length = comp_data.get('length', 0.02) * self.scene_scale
+            width = comp_data.get('width', 0.01) * self.scene_scale
+            ui_data['size'] = [length, width]
+        
+        return ui_data
+    
+    def _create_item_from_ui_state(self, ui_component_state: Dict):
+        """根据UI组件状态创建图形项"""
+        try:
+            # 创建图形元件
+            item = create_component_item(ui_component_state)
+            
+            # 添加到场景
+            self.scene.addItem(item)
+            x, y = ui_component_state['coords']
+            item.setPos(x, y)  # UI坐标已经是像素单位
+            
+        except Exception as e:
+            print(f"Failed to create item from UI state: {e}")
+    
+    def _display_thermal_result(self, thermal_result):
+        """显示热仿真结果"""
+        try:
+            scene_width = self.layout_size[0] * self.scene_scale
+            scene_height = self.layout_size[1] * self.scene_scale
+            
+            # 创建可视化配置
+            config = VisualizationConfig(
+                scene_width=scene_width,
+                scene_height=scene_height,
+                layout_domain=self.layout_size
+            )
+            config.style.show_colorbar = True
+            config.style.title = f"温度场分布 ({thermal_result.metadata.get('min_temperature', 0):.1f}K - {thermal_result.metadata.get('max_temperature', 0):.1f}K)"
+            
+            # 生成可视化图像
+            pixmap = FieldVisualizer.create_field_visualization(thermal_result, config)
+            
+            # 更新温度场背景
+            self.update_temperature_background_image(thermal_result.field_data)
+            
+        except Exception as e:
+            print(f"Failed to display thermal result: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def on_scene_updated(self, scene_data: List[Dict]):
         """当场景更新时，触发后台计算"""
         self.status_bar.showMessage("Computing...")
@@ -399,17 +790,15 @@ class MainWindow(QMainWindow):
     
     def update_sdf_background(self):
         """手动更新SDF背景"""
-        # 收集当前场景中的组件数据
-        components = []
-        for item in self.scene.items():
-            if hasattr(item, 'get_state'):
-                # 转换到米单位用于计算
-                state = convert_component_to_meters(item.get_state(), self.scene_scale)
-                components.append(state)
+        # 🔄 从数据管理器获取组件数据（新方式）
+        print("[SDF计算] 从数据管理器获取组件数据")
+        components = self.data_sync.get_components_for_calculation()
         
         if not components:
             QMessageBox.information(self, "No Components", "Please add some components first!")
             return
+        
+        print(f"[SDF计算] 获取到 {len(components)} 个组件用于计算")
             
         self.status_bar.showMessage("Updating SDF...")
         # 计算SDF网格形状
@@ -493,10 +882,206 @@ class MainWindow(QMainWindow):
             import traceback
             traceback.print_exc()
     
+    # === 🆕 选择同步处理方法 ===
+    
+    def on_component_selected(self, component_id: str):
+        """处理组件被选中事件"""
+        print(f"[MainWindow] 组件被选中: {component_id}")
+        
+        # 1. 切换侧边栏到对应标签页
+        try:
+            self.sidebar.select_component_tab(component_id)
+        except Exception as e:
+            print(f"[MainWindow] 侧边栏切换失败: {e}")
+        
+        # 2. 高亮对应的图形元件
+        try:
+            self._highlight_component_in_scene(component_id)
+        except Exception as e:
+            print(f"[MainWindow] 图形高亮失败: {e}")
+    
+    def on_selection_cleared(self):
+        """处理选择被清除事件"""
+        print("[MainWindow] 选择被清除")
+        
+        # 清除所有图形元件的高亮
+        try:
+            self._clear_all_highlights()
+        except Exception as e:
+            print(f"[MainWindow] 清除高亮失败: {e}")
+    
+    def _highlight_component_in_scene(self, component_id: str):
+        """在场景中高亮指定组件"""
+        # 首先清除所有高亮
+        self._clear_all_highlights()
+        
+        # 查找并高亮指定组件
+        for item in self.scene.items():
+            if hasattr(item, 'get_state') and hasattr(item, 'set_highlighted'):
+                state = item.get_state()
+                if state.get('id') == component_id:
+                    item.set_highlighted(True)
+                    print(f"[MainWindow] 高亮组件: {component_id}")
+                    break
+    
+    def _clear_all_highlights(self):
+        """清除场景中所有组件的高亮"""
+        for item in self.scene.items():
+            if hasattr(item, 'set_highlighted'):
+                item.set_highlighted(False)
+    
+    def _remove_graphics_item_by_id(self, component_id: str):
+        """🆕 通过组件ID从场景中移除对应的图像项"""
+        try:
+            for item in self.scene.items():
+                if hasattr(item, 'get_state'):
+                    state = item.get_state()
+                    if state.get('id') == component_id:
+                        print(f"[MainWindow] 从场景移除组件图像: {component_id}")
+                        self.scene.removeItem(item)
+                        # 强制刷新场景
+                        self.scene.update()
+                        for view in self.scene.views():
+                            view.update()
+                        break
+        except Exception as e:
+            print(f"[MainWindow] 移除图像项失败: {e}")
+    
+    def _register_image_compute_callbacks(self):
+        """注册图像计算回调函数"""
+        # SDF计算回调
+        def compute_sdf(input_data=None):
+            if input_data is None:
+                # 获取当前组件数据
+                input_data = {
+                    'components': self.data_sync.get_components_for_calculation(),
+                    'layout_size': (0.1, 0.1)
+                }
+            
+            from sdf_backend import SDFBackend
+            
+            sdf_backend = SDFBackend()
+            components = input_data['components']
+            grid_shape = (50, 50)  # 默认网格大小
+            
+            try:
+                # 🔧 传递正确的layout_size参数
+                layout_size = input_data.get('layout_size', (0.1, 0.1))
+                print(f"[SDF计算回调] 传递布局尺寸: {layout_size}")
+                sdf_array = sdf_backend.compute(components, grid_shape, layout_size)
+                
+                # 🔧 恢复旧版本的尺寸适配逻辑
+                # 计算场景尺寸
+                scene_width = self.layout_size[0] * self.scene_scale
+                scene_height = self.layout_size[1] * self.scene_scale
+                
+                # 使用专门的SDF图像创建函数（包含尺寸适配）
+                from ui_utils import create_sdf_figure
+                pixmap = create_sdf_figure(sdf_array, scene_width, scene_height)
+                
+                print(f"[SDF计算] 图像尺寸: {pixmap.width()}x{pixmap.height()}, 场景尺寸: {scene_width}x{scene_height}")
+                
+                return pixmap
+            except Exception as e:
+                print(f"[SDF计算] 失败: {e}")
+                return None
+        
+        # 温度场计算回调
+        def compute_temperature(input_data=None):
+            if input_data is None:
+                # 获取原始组件数据并转换格式
+                raw_components = self.data_sync.get_components_for_calculation()
+                
+                # 转换为thermal_backend期望的格式
+                converted_components = []
+                for comp in raw_components:
+                    converted_comp = {
+                        'center': comp.get('center', [0, 0]),
+                        'power': comp.get('power', 1.0),
+                        'shape': comp.get('type', 'circle')  # 将type映射为shape
+                    }
+                    # 添加尺寸信息
+                    if comp.get('type') == 'circle':
+                        converted_comp['radius'] = comp.get('radius', 0.01)
+                    elif comp.get('type') in ['rect', 'rectangle']:
+                        converted_comp['width'] = comp.get('width', 0.02)
+                        converted_comp['height'] = comp.get('height', 0.02)
+                    
+                    converted_components.append(converted_comp)
+                
+                input_data = {
+                    'components': converted_components,
+                    'layout_size': (0.1, 0.1)
+                }
+            
+            if self.thermal_backend:
+                from backends.base_backend import FieldType
+                # 添加必需的grid_shape参数
+                grid_shape = (50, 50)  # 默认网格大小
+                result = self.thermal_backend.compute_field(input_data, FieldType.TEMPERATURE, grid_shape)
+                
+                if result.is_valid():
+                    # 🔧 如果返回的是numpy数组，进行尺寸适配
+                    if isinstance(result.field_data, np.ndarray):
+                        # 计算场景尺寸
+                        scene_width = self.layout_size[0] * self.scene_scale
+                        scene_height = self.layout_size[1] * self.scene_scale
+                        
+                        # 使用专门的温度场图像创建函数
+                        from ui_utils import create_temperature_figure
+                        pixmap = create_temperature_figure(result.field_data, scene_width, scene_height)
+                        
+                        print(f"[温度场计算] 图像尺寸: {pixmap.width()}x{pixmap.height()}, 场景尺寸: {scene_width}x{scene_height}")
+                        return pixmap
+                    else:
+                        return result.field_data  # 已经是QPixmap
+                else:
+                    print(f"[温度场计算] 失败: {result.error_info}")
+                    return None
+            else:
+                print("[温度场计算] 热仿真后端未可用")
+                return None
+        
+        # 泰森多边形计算回调
+        def compute_voronoi(input_data=None):
+            if input_data is None:
+                input_data = {
+                    'components': self.data_sync.get_components_for_calculation(),
+                    'layout_size': (0.1, 0.1)
+                }
+            
+            from backends.voronoi_backend import VoronoiBackend
+            from backends.base_backend import FieldType
+            
+            voronoi_backend = VoronoiBackend()
+            result = voronoi_backend.compute_field(input_data, FieldType.VORONOI)
+            
+            if result.is_valid():
+                # 🔧 泰森多边形已经返回QPixmap，但可能需要尺寸检查
+                pixmap = result.field_data
+                if isinstance(pixmap, QPixmap):
+                    scene_width = self.layout_size[0] * self.scene_scale
+                    scene_height = self.layout_size[1] * self.scene_scale
+                    print(f"[泰森多边形计算] 图像尺寸: {pixmap.width()}x{pixmap.height()}, 场景尺寸: {scene_width}x{scene_height}")
+                
+                return result.field_data  # QPixmap
+            else:
+                print(f"[泰森多边形计算] 失败: {result.error_info}")
+                return None
+        
+        # 注册回调
+        self.image_manager.register_compute_callback('sdf', compute_sdf)
+        self.image_manager.register_compute_callback('temperature', compute_temperature)
+        self.image_manager.register_compute_callback('voronoi', compute_voronoi)
 
     
     def closeEvent(self, event):
-        """关闭窗口时，退出工作线程"""
+        """关闭窗口时，退出工作线程和清理资源"""
         self.thread.quit()
         self.thread.wait()
+        
+        # 🆕 清理输出重定向
+        if hasattr(self, 'output_manager'):
+            self.output_manager.cleanup()
+        
         event.accept()
