@@ -40,9 +40,14 @@ class SDFBackend(ComputationBackend):
         """计算点到元件的有向距离"""
         x, y = point
         c = component['coords']
-        s = component['size']
         t = component['type']
         
+        # 散热器和传感器不参与SDF计算，返回无穷大
+        if t in ['radiator', 'sensor']:
+            return float('inf')
+        
+        # 只有物理组件（rect, circle, capsule）参与SDF计算
+        s = component['size']
         if t == 'rect':
             return self._distance_to_rect((x, y), c, s)
         elif t == 'circle':

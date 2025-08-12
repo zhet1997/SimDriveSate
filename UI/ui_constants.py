@@ -36,6 +36,16 @@ class Colors:
     CAPSULE_FILL = (144, 238, 144, 150)  # 浅绿色填充
     CAPSULE_SELECTED = (100, 255, 100, 150)  # 选中绿色
     
+    # 散热器颜色
+    RADIATOR_BORDER = (128, 0, 128)  # 紫色
+    RADIATOR_FILL = (221, 160, 221, 150)  # 浅紫色填充
+    RADIATOR_SELECTED = (200, 100, 200, 150)  # 选中紫色
+    
+    # 测点颜色
+    SENSOR_BORDER = (255, 165, 0)  # 橙色
+    SENSOR_FILL = (255, 218, 185, 200)  # 浅橙色填充
+    SENSOR_SELECTED = (255, 140, 0, 200)  # 选中橙色
+    
     # UI颜色
     GRID_LINE = (200, 200, 200)  # 网格线颜色
     BORDER_LINE = (0, 0, 0)  # 边界线颜色
@@ -44,19 +54,21 @@ class Colors:
 
 # 样式表定义
 class StyleSheets:
-    # 绘制模式按钮样式
+    # 绘制模式按钮样式（优化为网格布局）
     DRAW_BUTTON_BASE = """
         QPushButton {{
-            padding: 15px;
-            font-size: 12px;
+            padding: 8px 12px;
+            font-size: 11px;
             border: 2px solid {border_color};
-            border-radius: 8px;
+            border-radius: 6px;
             background-color: #ecf0f1;
-            margin: 5px;
+            margin: 2px;
+            text-align: center;
         }}
         QPushButton:checked {{
             background-color: {border_color};
             color: white;
+            font-weight: bold;
         }}
         QPushButton:hover {{
             background-color: #bdc3c7;
@@ -66,6 +78,10 @@ class StyleSheets:
     RECT_BUTTON = DRAW_BUTTON_BASE.format(border_color="#3498db")
     CIRCLE_BUTTON = DRAW_BUTTON_BASE.format(border_color="#e74c3c")
     CAPSULE_BUTTON = DRAW_BUTTON_BASE.format(border_color="#27ae60")
+    RADIATOR_BUTTON = DRAW_BUTTON_BASE.format(border_color="#9b59b6")
+    
+    # 通用绘制模式按钮样式（用于传感器按钮等）
+    DRAWING_MODE_BUTTON = DRAW_BUTTON_BASE.format(border_color="#f39c12")
     
     # SDF控制样式
     SDF_CHECKBOX = """
@@ -124,6 +140,9 @@ class StyleSheets:
         }
     """
     
+    # 通用属性编辑器样式
+    PROPERTY_EDITOR = POWER_SPINBOX
+    
     # 分隔线样式
     SEPARATOR = "margin: 15px 5px;"
     
@@ -133,6 +152,72 @@ class StyleSheets:
     COMPONENT_INFO = "font-size: 10px; color: #7f8c8d;"
     POWER_LABEL = "font-size: 10px; font-weight: bold;"
     NO_COMPONENTS_LABEL = "color: #7f8c8d; font-style: italic; padding: 20px;"
+    
+    # 标签页样式（优化简化标签显示）
+    TAB_WIDGET = """
+        QTabWidget::pane {
+            border: 1px solid #bdc3c7;
+            border-radius: 5px;
+            background-color: #ffffff;
+        }
+        QTabBar::tab {
+            background-color: #ecf0f1;
+            border: 1px solid #bdc3c7;
+            padding: 6px 12px;
+            margin-right: 1px;
+            border-top-left-radius: 5px;
+            border-top-right-radius: 5px;
+            min-width: 40px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        QTabBar::tab:selected {
+            background-color: #3498db;
+            color: white;
+        }
+        QTabBar::tab:hover {
+            background-color: #bdc3c7;
+        }
+    """
+    
+    # 温度重构按钮样式
+    TEMP_RECONSTRUCTION_BUTTON = """
+        QPushButton {
+            padding: 10px;
+            font-size: 12px;
+            border: 2px solid #e67e22;
+            border-radius: 6px;
+            background-color: #ecf0f1;
+            margin: 5px;
+        }
+        QPushButton:hover {
+            background-color: #e67e22;
+            color: white;
+        }
+        QPushButton:pressed {
+            background-color: #d35400;
+        }
+    """
+    
+    # 删除按钮样式
+    DELETE_COMPONENT_BUTTON = """
+        QPushButton {
+            padding: 5px 10px;
+            font-size: 10px;
+            border: 1px solid #e74c3c;
+            border-radius: 4px;
+            background-color: #ffffff;
+            color: #e74c3c;
+            margin: 2px;
+        }
+        QPushButton:hover {
+            background-color: #e74c3c;
+            color: white;
+        }
+    """
+    
+    # 通用删除按钮样式（传感器等）
+    DELETE_BUTTON = DELETE_COMPONENT_BUTTON
 
 # SDF配置
 class SDFConfig:
@@ -143,26 +228,40 @@ class SDFConfig:
     DPI = 100  # 图像DPI
     Z_VALUE = -1  # SDF背景层级
 
-# 绘制模式图标
+# 图标和文本标签
 class Icons:
+    # 绘制模式文本标签（不再使用emoji）
     DRAW_MODES = {
-        'rect': '🔲',
-        'circle': '⭕', 
-        'capsule': '🏷️'
+        'rect': 'Rectangle',
+        'circle': 'Circle', 
+        'capsule': 'Capsule',
+        'radiator': 'Radiator'
     }
     
-    # 工具栏图标
-    LOAD_FILE = '📁'
-    SAVE_FILE = '💾'
-    DELETE = '🗑️'
-    UPDATE_SDF = '🔄'
-    SHOW_SDF = '👁️'
-    NONE_MODE = '❌'
+    # 工具栏文本标签（不再使用emoji）
+    LOAD_FILE = 'Load'
+    SAVE_FILE = 'Save'
+    DELETE = 'Delete'
+    UPDATE_SDF = 'Update'
+    SHOW_SDF = 'Show'
+    NONE_MODE = 'None'
+    ADD_SENSOR = 'Add Sensor'
+    EXECUTE_RECONSTRUCTION = 'Execute'
 
 # 组件名称映射
 class ComponentNames:
     DISPLAY_NAMES = {
         'rect': 'Rectangle',
         'circle': 'Circle',
-        'capsule': 'Capsule'
+        'capsule': 'Capsule',
+        'radiator': 'Radiator Segment'
+    }
+    
+    # 元件类型图标映射（用于简化标签页标题）
+    COMPONENT_TYPE_ICONS = {
+        'rect': '🔲',
+        'rectangle': '🔲',
+        'circle': '⭕',
+        'capsule': '💊',
+        'radiator': '📐'
     }
