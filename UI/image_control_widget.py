@@ -126,7 +126,9 @@ class ImageControlPanel(QWidget):
         # 图像类型配置
         image_configs = [
             ('sdf', 'SDF场'),
-            ('temperature', '温度场'),
+            ('temperature', '温度场计算'),
+            ('pod_temperature', '温度场预测'),
+            ('pod_reconstruction', '温度场重构'),
             ('voronoi', '泰森多边形')
         ]
         

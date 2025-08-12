@@ -21,8 +21,8 @@ sys.path.append(module_dir)
 sys.path.append(samply_dir)
 
 # 导入依赖
-from SeqLS import SeqLS  # 布局算法
-from test_fenicsx_solver import TemperatureFieldSolver  # 温度场求解器
+from layout.SeqLS import SeqLS  # 布局算法
+from pythonForFenics.test_fenicsx_solver import TemperatureFieldSolver  # 温度场求解器
 from utils import plot_sdf, plot_layout, plot_heat_source, plot_temperature_field
 
 # 日志配置

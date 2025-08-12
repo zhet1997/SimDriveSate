@@ -176,8 +176,29 @@ class DataFormatConverter:
                 ([0.0, layout_domain[1]], [layout_domain[0], layout_domain[1]])
             ]
         
+        # 🔧 检查并转换组件坐标系统
+        converted_components = []
+        for comp in components:
+            converted_comp = comp.copy()
+            center = comp.get('center', [0, 0])
+            
+            # 检查坐标是否需要转换（如果坐标值很大，可能是像素坐标）
+            if isinstance(center, (list, tuple)) and len(center) >= 2:
+                x, y = center[0], center[1]
+                # 如果坐标值 > 10，很可能是像素坐标，需要转换为米
+                if abs(x) > 10 or abs(y) > 10:
+                    # 假设像素坐标，转换为米坐标
+                    scene_scale = 4000  # 像素/米
+                    converted_comp['center'] = [x / scene_scale, y / scene_scale]
+                    print(f"[坐标转换] 组件center从像素{center}转换为米{converted_comp['center']}")
+                else:
+                    # 已经是米坐标
+                    converted_comp['center'] = center
+            
+            converted_components.append(converted_comp)
+        
         return {
-            "components": components,
+            "components": converted_components,
             "layout_domain": layout_domain,
             "boundary_temperature": boundary_temperature,
             "boundary_conditions": boundary_conditions,

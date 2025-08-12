@@ -76,6 +76,10 @@ class RightPanel:
         self.image_control_panel.display_changed.connect(self._handle_display_change)
         
         layout.addWidget(self.image_control_panel)
+        
+        # 🆕 添加温度场重构特殊控制组
+        self._create_temperature_reconstruction_section(layout)
+        
         layout.addStretch()
         
         return widget
@@ -322,9 +326,118 @@ class RightPanel:
             # 清除显示
             image_manager.clear_display()
         else:
+            # 🔧 原始温度场使用专业显示路径，POD温度场使用ImageManager显示
+            if image_type == "temperature":
+                print(f"[RightPanel] 温度场已通过专业显示路径显示，跳过ImageManager显示")
+                return
+            elif image_type == "pod_temperature":
+                print(f"[RightPanel] P温度场预测ImageManager显示")
+                # POD温度场继续使用ImageManager显示
+            
             # 显示指定图像
             success = image_manager.display_image(image_type)
             if not success:
                 print(f"[RightPanel] {image_type} 显示失败")
                 # 如果显示失败，清除勾选状态
                 self.image_control_panel.clear_all_display()
+    
+    def _create_temperature_reconstruction_section(self, layout: QVBoxLayout):
+        """创建温度场重构特殊控制区域"""
+        # 创建框架
+        recon_frame = QFrame()
+        recon_frame.setFrameStyle(QFrame.Shape.Box)
+        recon_frame.setStyleSheet("""
+            QFrame {
+                border: 1px solid #BDC3C7;
+                border-radius: 5px;
+                background-color: #FFF8DC;
+                margin: 2px;
+            }
+        """)
+        
+        recon_layout = QVBoxLayout(recon_frame)
+        recon_layout.setContentsMargins(10, 8, 10, 8)
+        recon_layout.setSpacing(6)
+        
+        # 标题
+        title = QLabel("🔄 温度场重构")
+        title.setStyleSheet("font-weight: bold; color: #8B4513;")
+        recon_layout.addWidget(title)
+        
+        # "从温度场获取测点温度"按钮
+        self.sample_from_field_button = QPushButton("📊 从温度场获取测点温度")
+        self.sample_from_field_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FF8C00;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #FF7F00;
+            }
+            QPushButton:pressed {
+                background-color: #FF6347;
+            }
+            QPushButton:disabled {
+                background-color: #D3D3D3;
+                color: #A0A0A0;
+            }
+        """)
+        self.sample_from_field_button.clicked.connect(self._on_sample_from_temperature_field)
+        recon_layout.addWidget(self.sample_from_field_button)
+        
+        # 说明文字
+        info_label = QLabel("需要先计算POD温度场，然后放置传感器测点")
+        info_label.setStyleSheet("color: #666; font-size: 10px;")
+        info_label.setWordWrap(True)
+        recon_layout.addWidget(info_label)
+        
+        layout.addWidget(recon_frame)
+    
+    def _on_sample_from_temperature_field(self):
+        """从温度场获取测点温度按钮回调"""
+        print("[RightPanel] 开始从温度场采样测点温度")
+        
+        # 获取图像管理器
+        from image_manager import get_image_manager
+        image_manager = get_image_manager()
+        
+        # 检查是否有POD温度场
+        if not image_manager.is_cached('pod_temperature'):
+            print("[RightPanel] 错误: 未找到POD温度场，请先计算POD温度场")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self.main_window, "温度场未计算", 
+                               "请先点击'计算POD温度场'按钮计算温度场！")
+            return
+        
+        # 获取所有传感器
+        sensors = []
+        for item in self.main_window.scene.items():
+            if hasattr(item, 'get_state') and item.get_state().get('type') == 'sensor':
+                sensors.append(item)
+        
+        if not sensors:
+            print("[RightPanel] 错误: 未找到传感器")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self.main_window, "无传感器", 
+                               "请先放置传感器测点！")
+            return
+        
+        # 调用主窗口的采样方法
+        try:
+            success_count = self.main_window.sample_temperatures_from_pod_field(sensors)
+            print(f"[RightPanel] 温度采样完成，成功更新 {success_count} 个传感器")
+            
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self.main_window, "采样完成", 
+                                   f"已从POD温度场为 {success_count} 个传感器采样温度值！")
+            
+        except Exception as e:
+            print(f"[RightPanel] 温度采样失败: {e}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self.main_window, "采样失败", 
+                               f"温度采样失败: {str(e)}")

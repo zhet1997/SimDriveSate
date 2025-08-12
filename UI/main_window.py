@@ -668,12 +668,19 @@ class MainWindow(QMainWindow):
             
             print(f"[热仿真] 获取到 {len(dg_components)} 个组件用于计算")
             
+            # 🔧 添加详细的输入数据日志
+            print(f"[热仿真] 输入组件数据:")
+            for i, comp in enumerate(dg_components[:3]):  # 只显示前3个组件
+                print(f"  组件{i}: center={comp.get('center')}, power={comp.get('power')}, type={comp.get('type')}")
+            
             # 创建热仿真输入数据
             input_data = DataFormatConverter.create_thermal_simulation_input(
                 components=dg_components,
                 layout_domain=self.layout_size,
                 boundary_temperature=298.0  # 默认室温
             )
+            
+            print(f"[热仿真] 格式化后的layout_domain: {input_data.get('layout_domain')}")
             
             self.status_bar.showMessage("正在进行热仿真计算...")
             
@@ -743,9 +750,11 @@ class MainWindow(QMainWindow):
     
     def _display_thermal_result(self, thermal_result):
         """显示热仿真结果"""
+        print(f"[_display_thermal_result] 开始显示热仿真结果")
         try:
             scene_width = self.layout_size[0] * self.scene_scale
             scene_height = self.layout_size[1] * self.scene_scale
+            print(f"[_display_thermal_result] 场景尺寸: {scene_width}x{scene_height}")
             
             # 创建可视化配置
             config = VisualizationConfig(
@@ -872,7 +881,9 @@ class MainWindow(QMainWindow):
             # 自动显示温度场
             self.sdf_background_item.setVisible(True)
             self.sdf_visible = True
-            self.sidebar.sdf_show_checkbox.setChecked(True)
+            # 🔧 修复checkbox访问错误
+            if hasattr(self.sidebar, 'sdf_show_checkbox'):
+                self.sidebar.sdf_show_checkbox.setChecked(True)
             
             # 关闭测点放置模式，切换到选择模式
             self.set_sensor_placement_mode(False)
@@ -989,39 +1000,40 @@ class MainWindow(QMainWindow):
         # 温度场计算回调
         def compute_temperature(input_data=None):
             if input_data is None:
-                # 获取原始组件数据并转换格式
-                raw_components = self.data_sync.get_components_for_calculation()
+                # 🔧 使用与旧版本相同的数据格式化方式
+                print("[温度场计算回调] 使用DataFormatConverter进行数据格式化")
+                dg_components = self.data_sync.get_components_for_calculation()
                 
-                # 转换为thermal_backend期望的格式
-                converted_components = []
-                for comp in raw_components:
-                    converted_comp = {
-                        'center': comp.get('center', [0, 0]),
-                        'power': comp.get('power', 1.0),
-                        'shape': comp.get('type', 'circle')  # 将type映射为shape
-                    }
-                    # 添加尺寸信息
-                    if comp.get('type') == 'circle':
-                        converted_comp['radius'] = comp.get('radius', 0.01)
-                    elif comp.get('type') in ['rect', 'rectangle']:
-                        converted_comp['width'] = comp.get('width', 0.02)
-                        converted_comp['height'] = comp.get('height', 0.02)
-                    
-                    converted_components.append(converted_comp)
+                # 使用旧版本的数据格式化器
+                from data_bridge.format_converter import DataFormatConverter
+                input_data = DataFormatConverter.create_thermal_simulation_input(
+                    components=dg_components,
+                    layout_domain=self.layout_size,  # 使用当前布局尺寸
+                    boundary_temperature=298.0  # 默认室温
+                )
+                print(f"[温度场计算回调] 格式化后的数据: layout_domain={input_data.get('layout_domain')}, 组件数={len(input_data.get('components', []))}")
                 
-                input_data = {
-                    'components': converted_components,
-                    'layout_size': (0.1, 0.1)
-                }
+                # 🔧 添加详细的输入数据日志
+                print(f"[温度场计算回调] 输入组件数据:")
+                formatted_components = input_data.get('components', [])
+                for i, comp in enumerate(formatted_components[:3]):  # 只显示前3个组件
+                    print(f"  组件{i}: center={comp.get('center')}, power={comp.get('power')}, shape={comp.get('shape')}")
             
             if self.thermal_backend:
                 from backends.base_backend import FieldType
-                # 添加必需的grid_shape参数
-                grid_shape = (50, 50)  # 默认网格大小
+                # 🔧 使用与旧版本相同的网格尺寸
+                grid_shape = (256, 256)  # 与旧版本保持一致
                 result = self.thermal_backend.compute_field(input_data, FieldType.TEMPERATURE, grid_shape)
                 
                 if result.is_valid():
-                    # 🔧 如果返回的是numpy数组，进行尺寸适配
+                    # 🔧 使用与热仿真按钮完全相同的显示路径
+                    print(f"[温度场计算] 计算成功，使用专业显示路径")
+                    
+                    # 直接调用热仿真的显示方法
+                    self._display_thermal_result(result)
+                    
+                    # 为了与ImageManager兼容，仍然返回图像
+                    # 但实际显示已经通过_display_thermal_result完成
                     if isinstance(result.field_data, np.ndarray):
                         # 计算场景尺寸
                         scene_width = self.layout_size[0] * self.scene_scale
@@ -1069,9 +1081,161 @@ class MainWindow(QMainWindow):
                 print(f"[泰森多边形计算] 失败: {result.error_info}")
                 return None
         
+        # 温度场预测计算回调
+        def compute_pod_temperature(input_data=None):
+            if input_data is None:
+                # 获取组件数据并转换为POD API格式
+                print("[温度场预测计算回调] 开始数据准备")
+                dg_components = self.data_sync.get_components_for_calculation()
+                
+                if not dg_components:
+                    print("[温度场预测计算回调] 错误: 没有组件数据")
+                    return None
+                
+                input_data = {
+                    'components': dg_components,
+                    'layout_size': self.layout_size
+                }
+                print(f"[温度场预测计算回调] 准备计算 {len(dg_components)} 个组件的POD温度场")
+            
+            try:
+                # 导入POD后端
+                from backends.pod_temperature_backend import PODTemperatureBackend
+                from backends.base_backend import FieldType
+                
+                # 创建POD后端实例
+                pod_backend = PODTemperatureBackend()
+                
+                # 初始化后端
+                if not pod_backend.initialize():
+                    print("[温度场预测] 后端初始化失败")
+                    return None
+                
+                # 温度场预测
+                grid_shape = (256, 256)  # 与原始温度场保持一致
+                result = pod_backend.compute_field(input_data, FieldType.TEMPERATURE, grid_shape)
+                
+                if result.is_valid():
+                    print(f"[温度场预测] 计算成功")
+                    print(f"  温度范围: [{result.metadata.get('min_temperature', 0):.2f}, {result.metadata.get('max_temperature', 0):.2f}]K")
+                    
+                    # 将结果转换为QPixmap
+                    if isinstance(result.field_data, np.ndarray):
+                        # 计算场景尺寸
+                        scene_width = self.layout_size[0] * self.scene_scale
+                        scene_height = self.layout_size[1] * self.scene_scale
+                        
+                        # 使用专门的温度场图像创建函数
+                        from ui_utils import create_temperature_figure
+                        pixmap = create_temperature_figure(result.field_data, scene_width, scene_height)
+                        
+                        print(f"[温度场预测] 图像尺寸: {pixmap.width()}x{pixmap.height()}, 场景尺寸: {scene_width}x{scene_height}")
+                        return pixmap
+                    else:
+                        return result.field_data  # 已经是QPixmap
+                else:
+                    print(f"[温度场预测] 失败: {result.error_info}")
+                    return None
+                    
+            except Exception as e:
+                print(f"[温度场预测] 异常: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+        
+        # POD重构计算回调
+        def compute_pod_reconstruction(input_data=None):
+            # 收集所有传感器数据
+            print("[POD重构计算回调] 开始收集传感器数据")
+            sensors = []
+            for item in self.scene.items():
+                if hasattr(item, 'get_state') and item.get_state().get('type') == 'sensor':
+                    sensors.append(item)
+            
+            if not sensors:
+                print("[POD重构计算回调] 错误: 没有传感器数据")
+                return None
+            
+            # 准备测点数据
+            measurement_points = []
+            temperature_values = []
+            
+            for sensor in sensors:
+                state = sensor.get_state()
+                temperature = state.get('temperature', 298.0)  # 默认室温
+                
+                # 获取像素坐标并转换为POD API需要的坐标系(0-255)
+                pixel_coords = state['coords']
+                
+                # 转换坐标系：像素坐标 → POD网格坐标 (0-255)
+                scene_width = self.layout_size[0] * self.scene_scale
+                scene_height = self.layout_size[1] * self.scene_scale
+                
+                grid_x = (pixel_coords[0] / scene_width) * 255
+                grid_y = (pixel_coords[1] / scene_height) * 255
+                
+                # 边界检查
+                grid_x = max(0, min(255, grid_x))
+                grid_y = max(0, min(255, grid_y))
+                
+                measurement_points.append((grid_x, grid_y))
+                temperature_values.append(temperature)
+            
+            print(f"[POD重构计算回调] 收集到 {len(measurement_points)} 个测点")
+            print(f"  温度范围: [{min(temperature_values):.2f}, {max(temperature_values):.2f}]K")
+            
+            try:
+                # 导入POD后端
+                from backends.pod_temperature_backend import PODTemperatureBackend
+                
+                # 创建POD后端实例
+                pod_backend = PODTemperatureBackend()
+                
+                # 初始化后端
+                if not pod_backend.initialize():
+                    print("[POD重构] 后端初始化失败")
+                    return None
+                
+                # 执行GA重构
+                result = pod_backend.reconstruct_temperature_field(
+                    measurement_points,
+                    temperature_values
+                )
+                
+                if result.is_valid():
+                    print(f"[POD重构] GA重构成功")
+                    print(f"  重构温度范围: [{result.metadata.get('min_temperature', 0):.2f}, {result.metadata.get('max_temperature', 0):.2f}]K")
+                    print(f"  测点平均误差: {result.metadata.get('validation_metrics', {}).get('point_mae', 0):.4f}")
+                    
+                    # 将结果转换为QPixmap
+                    if isinstance(result.field_data, np.ndarray):
+                        # 计算场景尺寸
+                        scene_width = self.layout_size[0] * self.scene_scale
+                        scene_height = self.layout_size[1] * self.scene_scale
+                        
+                        # 使用专门的温度场图像创建函数
+                        from ui_utils import create_temperature_figure
+                        pixmap = create_temperature_figure(result.field_data, scene_width, scene_height)
+                        
+                        print(f"[POD重构] 图像尺寸: {pixmap.width()}x{pixmap.height()}, 场景尺寸: {scene_width}x{scene_height}")
+                        return pixmap
+                    else:
+                        return result.field_data  # 已经是QPixmap
+                else:
+                    print(f"[POD重构] 失败: {result.error_info}")
+                    return None
+                    
+            except Exception as e:
+                print(f"[POD重构] 异常: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+        
         # 注册回调
         self.image_manager.register_compute_callback('sdf', compute_sdf)
         self.image_manager.register_compute_callback('temperature', compute_temperature)
+        self.image_manager.register_compute_callback('pod_temperature', compute_pod_temperature)
+        self.image_manager.register_compute_callback('pod_reconstruction', compute_pod_reconstruction)
         self.image_manager.register_compute_callback('voronoi', compute_voronoi)
 
     
@@ -1085,3 +1249,99 @@ class MainWindow(QMainWindow):
             self.output_manager.cleanup()
         
         event.accept()
+    
+    def sample_temperatures_from_pod_field(self, sensors):
+        """从POD温度场为传感器采样温度值
+        
+        Args:
+            sensors: 传感器列表
+            
+        Returns:
+            int: 成功更新的传感器数量
+        """
+        # 获取图像管理器
+        from image_manager import get_image_manager
+        image_manager = get_image_manager()
+        
+        # 检查POD温度场是否存在
+        if not image_manager.is_cached('pod_temperature'):
+            raise RuntimeError("POD温度场未计算，请先计算POD温度场")
+        
+        # 获取POD温度场数据
+        try:
+            # 通过POD后端重新计算以获取原始数组数据
+            from backends.pod_temperature_backend import PODTemperatureBackend
+            
+            pod_backend = PODTemperatureBackend()
+            if not pod_backend.initialize():
+                raise RuntimeError("POD后端初始化失败")
+            
+            # 获取当前组件数据
+            dg_components = self.data_sync.get_components_for_calculation()
+            if not dg_components:
+                raise RuntimeError("没有组件数据")
+            
+            input_data = {
+                'components': dg_components,
+                'layout_size': self.layout_size
+            }
+            
+            # 重新计算温度场获取数组数据
+            grid_shape = (256, 256)
+            result = pod_backend.compute_field(input_data, pod_backend.get_supported_field_types()[0], grid_shape)
+            
+            if not result.is_valid():
+                raise RuntimeError(f"温度场计算失败: {result.error_info}")
+            
+            temp_field = result.field_data
+            print(f"[温度采样] 获取到温度场数据: {temp_field.shape}")
+            
+        except Exception as e:
+            raise RuntimeError(f"获取温度场数据失败: {str(e)}")
+        
+        # 为每个传感器采样温度
+        success_count = 0
+        scene_width = self.layout_size[0] * self.scene_scale
+        scene_height = self.layout_size[1] * self.scene_scale
+        
+        for sensor in sensors:
+            try:
+                state = sensor.get_state()
+                pixel_coords = state['coords']
+                
+                # 坐标转换：像素坐标 → 温度场网格坐标
+                norm_x = pixel_coords[0] / scene_width
+                norm_y = pixel_coords[1] / scene_height
+                
+                # 网格坐标 (0-255)
+                grid_x = int(norm_x * 255)
+                grid_y = int(norm_y * 255)
+                
+                # 边界检查
+                grid_x = max(0, min(255, grid_x))
+                grid_y = max(0, min(255, grid_y))
+                
+                # 从温度场采样
+                sampled_temp = float(temp_field[grid_y, grid_x])
+                
+                # 更新传感器温度
+                state['temperature'] = sampled_temp
+                sensor.set_state(state)  # 使用正确的方法名
+                
+                print(f"[温度采样] 传感器({pixel_coords[0]:.0f},{pixel_coords[1]:.0f}) -> 网格({grid_x},{grid_y}) -> {sampled_temp:.2f}K")
+                success_count += 1
+                
+            except Exception as e:
+                print(f"[温度采样] 传感器采样失败: {e}")
+                continue
+        
+        # 更新传感器显示
+        self.sidebar.update_sensor_list()
+        
+        # 强制刷新场景以更新温度显示
+        self.scene.update()
+        for view in self.scene.views():
+            view.update()
+        
+        print(f"[温度采样] 完成，成功更新 {success_count}/{len(sensors)} 个传感器")
+        return success_count

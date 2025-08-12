@@ -1,5 +1,7 @@
 # 2D Satellite Layout Project .gitignore
 
+heat_dataset/
+results/
 # Python
 __pycache__/
 *.py[cod]

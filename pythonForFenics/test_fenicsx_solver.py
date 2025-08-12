@@ -18,7 +18,7 @@ module_dir = "/data/zxr/inr/SimDriveSate/pythonForFenics"
 if module_dir not in sys.path:
     sys.path.append(module_dir)
 
-from fenicsx_solver import run_solver
+from .fenicsx_solver import run_solver
 
 
 class TemperatureFieldSolver:
